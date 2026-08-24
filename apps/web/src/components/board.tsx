@@ -131,6 +131,13 @@ export function WeekBoard({
 
     setError(null);
 
+    // What the board looked like immediately before this move. Rolling back to
+    // the *props* instead would discard any earlier moves that succeeded but
+    // whose revalidation has not landed yet — one failed drag would appear to
+    // undo the three good ones before it.
+    const previousColumns = columns;
+    const previousBacklog = backlog;
+
     // --- Optimistic placement ---------------------------------------------
     const withoutCard = (tasks: BoardCard[]) => tasks.filter((task) => task.id !== taskId);
     const insertAt = (tasks: BoardCard[], index: number) => {
@@ -173,17 +180,23 @@ export function WeekBoard({
         // Put it back rather than leaving the board showing a move that did
         // not happen. A silent divergence here would be the worst outcome:
         // the user plans against a day that does not exist on the server.
-        setColumns(initialColumns);
-        setBacklog(initialBacklog);
+        setColumns(previousColumns);
+        setBacklog(previousBacklog);
         setError(result.error);
         return;
       }
 
       // Reordering within a day is a separate concern from committing to one,
-      // so the column's final order is sent explicitly.
+      // so the column's final order is sent explicitly. Its failure is
+      // reported too: the card did land on the right day, but silently leaving
+      // it in the wrong place is still the board disagreeing with the server.
       if (target.column !== BACKLOG) {
         const ordered = nextColumns.find((c) => c.key === target.column)?.tasks ?? [];
-        await reorderBoardDay({ day: target.column, orderedIds: ordered.map((task) => task.id) });
+        const reordered = await reorderBoardDay({
+          day: target.column,
+          orderedIds: ordered.map((task) => task.id),
+        });
+        if (reordered.error) setError(reordered.error);
       }
     });
   };

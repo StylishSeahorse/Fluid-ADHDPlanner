@@ -138,7 +138,15 @@ export function FlowMode({
                 startedAt={currentEntry.startedAt}
               />
 
+              {/*
+                Keyed by task on purpose. Without it React keeps one instance
+                across a task change — same type, same position — and the break
+                countdown leaks onto the next piece of work: "on a break" for
+                something you just started, and a "Start again" button that
+                would resume the timer on the wrong task.
+              */}
               <BreakPrompt
+                key={currentEntry.taskId}
                 taskId={currentEntry.taskId}
                 taskTitle={currentEntry.title}
                 startedAt={currentEntry.startedAt}

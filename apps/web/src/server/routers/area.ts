@@ -134,6 +134,19 @@ export const areaRouter = router({
    * Sunsama's "personal versus work" report. Built from logged minutes rather
    * than from estimates, because the gap between the two is the entire reason
    * anyone looks at this screen.
+   *
+   * Scoped to work *finished* in the window, and that narrowing is the point.
+   * `actualMinutes` is a running lifetime total with no per-day breakdown
+   * behind it, so the previous `completedAt >= since OR lastTouchedAt >= since`
+   * counted a task's entire history the moment it was touched — ten hours
+   * logged over a month landed in "the last 7 days" because someone opened it
+   * this morning. The figure claimed to under-report and quietly did the
+   * opposite.
+   *
+   * Attributing a finished task's whole duration to its completion date is
+   * still an approximation, but it is a stateable one: this is time spent on
+   * things you finished in the window. Anything better needs a real time-log
+   * table, which is a feature rather than a correction.
    */
   timeSpent: protectedProcedure
     .input(z.object({ days: z.number().int().min(1).max(90).default(7) }).default({}))
@@ -144,7 +157,7 @@ export const areaRouter = router({
         where: {
           userId: ctx.user.id,
           actualMinutes: { gt: 0 },
-          OR: [{ completedAt: { gte: since } }, { lastTouchedAt: { gte: since } }],
+          completedAt: { gte: since },
         },
         select: {
           actualMinutes: true,

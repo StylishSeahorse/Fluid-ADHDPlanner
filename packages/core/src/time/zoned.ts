@@ -184,6 +184,37 @@ export function localTimeOnDay(
   );
 }
 
+/**
+ * Local midnight of a `YYYY-MM-DD` calendar date, as an instant.
+ *
+ * A calendar date and an instant are different things, and converting between
+ * them needs a timezone. Callers used to bridge the gap client-side by probing
+ * noon UTC and letting the server take `startOfLocalDay` of the result. That is
+ * correct for most of the world and wrong past UTC+12, where noon UTC has
+ * already rolled into the next day:
+ *
+ *     Australia/Sydney    "2026-08-24" -> 2026-08-24   ok
+ *     Pacific/Auckland    "2026-08-24" -> 2026-08-25   off by one
+ *
+ * No probe hour fixes it. Offsets span UTC-12 to UTC+14, so every fixed instant
+ * falls outside the intended day for somebody. The date has to be resolved
+ * against a known zone, which is what this does — probing from noon *in that
+ * zone*, since a DST transition moves midnight but never noon.
+ */
+export function parseLocalDay(date: string, timeZone: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) throw new RangeError(`Not a calendar date: ${date}`);
+
+  const [, year, month, day] = match;
+  return startOfLocalDay(
+    fromLocal(
+      { year: Number(year), month: Number(month), day: Number(day), hour: 12, minute: 0, second: 0 },
+      timeZone,
+    ),
+    timeZone,
+  );
+}
+
 /** Day of week in the target zone. 0 = Sunday, matching the schema. */
 export function localDayOfWeek(instant: Date, timeZone: string): number {
   const local = toLocal(instant, timeZone);

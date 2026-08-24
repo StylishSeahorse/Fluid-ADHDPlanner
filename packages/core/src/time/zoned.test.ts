@@ -4,6 +4,7 @@ import {
   localDayOfWeek,
   localTimeOnDay,
   offsetAt,
+  parseLocalDay,
   parseTimeOfDay,
   startOfLocalDay,
   toLocal,
@@ -129,5 +130,54 @@ describe('day helpers', () => {
     const instant = new Date('2026-07-15T02:00:00Z');
     expect(localDayOfWeek(instant, 'UTC')).toBe(3);
     expect(localDayOfWeek(instant, 'America/New_York')).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Calendar dates
+//
+// A date the browser rendered has to resolve to that same date on the server.
+// The regression these guard is a noon-UTC probe, which is correct everywhere
+// except past UTC+12 — where it silently stores tomorrow.
+// ---------------------------------------------------------------------------
+describe('parseLocalDay', () => {
+  const dayKey = (instant: Date, timeZone: string): string => {
+    const local = toLocal(instant, timeZone);
+    return `${local.year}-${String(local.month).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`;
+  };
+
+  it.each([
+    'Pacific/Kiritimati', // UTC+14 — the far edge, and the one that broke
+    'Pacific/Auckland', // UTC+12/+13
+    'Australia/Sydney',
+    'Asia/Tokyo',
+    'Asia/Kolkata', // half-hour offset
+    'Europe/London',
+    'UTC',
+    'America/New_York',
+    'America/Los_Angeles',
+    'Pacific/Niue', // UTC-11
+  ])('round-trips a calendar date in %s', (timeZone) => {
+    for (const date of ['2026-01-15', '2026-06-24', '2026-08-24', '2026-12-31']) {
+      expect(dayKey(parseLocalDay(date, timeZone), timeZone)).toBe(date);
+    }
+  });
+
+  it('lands on local midnight rather than the probe hour', () => {
+    const local = toLocal(parseLocalDay('2026-08-24', 'Pacific/Auckland'), 'Pacific/Auckland');
+    expect([local.hour, local.minute, local.second]).toEqual([0, 0, 0]);
+  });
+
+  it('holds across a DST transition, when local midnight itself moves', () => {
+    expect(dayKey(parseLocalDay('2026-03-29', 'Europe/London'), 'Europe/London')).toBe('2026-03-29');
+    expect(dayKey(parseLocalDay('2026-04-05', 'Pacific/Auckland'), 'Pacific/Auckland')).toBe(
+      '2026-04-05',
+    );
+  });
+
+  it('refuses anything that is not a calendar date', () => {
+    for (const bad of ['2026-8-24', '24-08-2026', '2026-08-24T12:00:00Z', '', 'today']) {
+      expect(() => parseLocalDay(bad, 'UTC')).toThrow(RangeError);
+    }
   });
 });

@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { prisma, type Prisma } from '@fluid/db';
 import { startOfLocalDay } from '@fluid/core';
+import { localDate, resolveLocalDay } from '../local-date';
 import { protectedProcedure, router } from '../trpc';
 import { weekShape } from './day';
 
@@ -80,7 +81,7 @@ async function renumber(
 
   const siblings = await tx.task.findMany({
     where: { userId, plannedFor: day, status: { notIn: ['CANCELLED'] }, id: { not: movedId } },
-    select: { id: true },
+    select: { id: true, dayOrder: true },
     orderBy: [{ dayOrder: 'asc' }, { createdAt: 'asc' }],
   });
 
@@ -88,11 +89,20 @@ async function renumber(
   const index = position === undefined ? ids.length : Math.max(0, Math.min(position, ids.length));
   ids.splice(index, 0, movedId);
 
-  await Promise.all(
-    ids.map((id, order) =>
-      tx.task.update({ where: { id }, data: { dayOrder: order * ORDER_STEP } }),
-    ),
-  );
+  // Write only the rows whose position actually changed. Dropping a card at the
+  // end of a column — the common case — then costs one UPDATE instead of one
+  // per card.
+  //
+  // Sequential rather than `Promise.all`: these share a single interactive
+  // transaction, and Prisma does not promise safe concurrent use of one `tx`
+  // client. The parallelism bought nothing anyway, since a transaction runs its
+  // statements in series on the connection regardless.
+  const current = new Map(siblings.map((row) => [row.id, row.dayOrder]));
+  for (const [order, id] of ids.entries()) {
+    const dayOrder = order * ORDER_STEP;
+    if (id !== movedId && current.get(id) === dayOrder) continue;
+    await tx.task.update({ where: { id }, data: { dayOrder } });
+  }
 }
 
 export const boardRouter = router({
@@ -165,8 +175,8 @@ export const boardRouter = router({
     .input(
       z.object({
         taskId: z.string().cuid(),
-        /** null moves the card back to the backlog. */
-        day: z.coerce.date().nullable(),
+        /** The column's calendar date, or null to send it back to the backlog. */
+        day: localDate.nullable(),
         /**
          * Index within the target day. Omit to append — callers that are
          * adding to a day they are not looking at (the morning ritual) have no
@@ -177,7 +187,7 @@ export const boardRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const timeZone = ctx.user.timeZone;
-      const day = input.day ? startOfLocalDay(input.day, timeZone) : null;
+      const day = input.day ? resolveLocalDay(input.day, timeZone) : null;
 
       const task = await prisma.task.findFirst({
         where: { id: input.taskId, userId: ctx.user.id },
@@ -215,12 +225,12 @@ export const boardRouter = router({
   reorder: protectedProcedure
     .input(
       z.object({
-        day: z.coerce.date(),
+        day: localDate,
         orderedIds: z.array(z.string().cuid()).max(200),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const day = startOfLocalDay(input.day, ctx.user.timeZone);
+      const day = resolveLocalDay(input.day, ctx.user.timeZone);
 
       // Scope the update by day as well as user, so a crafted id list cannot
       // reorder something that is not on this board.
@@ -250,11 +260,11 @@ export const boardRouter = router({
    * precisely the thing that makes the app unopenable.
    */
   rollover: protectedProcedure
-    .input(z.object({ from: z.coerce.date(), to: z.coerce.date() }))
+    .input(z.object({ from: localDate, to: localDate }))
     .mutation(async ({ ctx, input }) => {
       const timeZone = ctx.user.timeZone;
-      const from = startOfLocalDay(input.from, timeZone);
-      const to = startOfLocalDay(input.to, timeZone);
+      const from = resolveLocalDay(input.from, timeZone);
+      const to = resolveLocalDay(input.to, timeZone);
       if (from.getTime() === to.getTime()) return { moved: 0 };
 
       const stranded = await prisma.task.findMany({

@@ -128,6 +128,7 @@ export async function createTask(_state: ActionState, formData: FormData): Promi
 
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
   return {};
 }
 
@@ -136,6 +137,8 @@ export async function completeTask(formData: FormData): Promise<void> {
   await caller.task.complete({ id: String(formData.get('id')) });
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
 }
 
 /** The `FormData` shape, for buttons that submit fields rather than an id. */
@@ -155,6 +158,8 @@ export async function uncompleteTask(taskId: string): Promise<{ error?: string }
 
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
   return {};
 }
 
@@ -192,6 +197,7 @@ export async function updateTaskDetails(input: TaskEdit): Promise<{ error?: stri
 
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
   return {};
 }
 
@@ -199,6 +205,7 @@ export async function deleteTask(formData: FormData): Promise<void> {
   const caller = await getCaller();
   await caller.task.delete({ id: String(formData.get('id')) });
   revalidatePath('/projects');
+  revalidatePath('/week');
 }
 
 export async function deferTask(formData: FormData): Promise<void> {
@@ -209,6 +216,8 @@ export async function deferTask(formData: FormData): Promise<void> {
   });
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
 }
 
 export async function breakdownTask(formData: FormData): Promise<void> {
@@ -219,12 +228,15 @@ export async function breakdownTask(formData: FormData): Promise<void> {
   });
   revalidatePath('/projects');
   revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
 }
 
 export async function acknowledgeAvoidance(formData: FormData): Promise<void> {
   const caller = await getCaller();
   await caller.task.acknowledgeAvoidance({ id: String(formData.get('id')) });
   revalidatePath('/today');
+  revalidatePath('/week');
 }
 
 export async function logTime(formData: FormData): Promise<void> {
@@ -235,6 +247,8 @@ export async function logTime(formData: FormData): Promise<void> {
   });
   revalidatePath('/today');
   revalidatePath('/projects');
+  revalidatePath('/week');
+  revalidatePath('/focus');
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +534,8 @@ export async function startTaskTimer(
     const result = await caller.task.startTimer({ id: taskId });
     revalidatePath('/projects');
     revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
     return { startedAt: result.startedAt, switchedFrom: result.switchedFrom };
   } catch (error) {
     return { error: messageFrom(error, 'Could not start the timer.') };
@@ -533,6 +549,8 @@ export async function stopTaskTimer(taskId: string): Promise<{ minutes?: number;
     const result = await caller.task.stopTimer({ id: taskId });
     revalidatePath('/projects');
     revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
     return { minutes: result.minutes };
   } catch (error) {
     return { error: messageFrom(error, 'Could not stop the timer.') };
@@ -594,6 +612,7 @@ export async function shutdownDay(input: {
   }
 
   revalidatePath('/today');
+  revalidatePath('/week');
   return {};
 }
 
@@ -607,6 +626,7 @@ export async function reopenDay(day: string): Promise<{ error?: string }> {
   }
 
   revalidatePath('/today');
+  revalidatePath('/week');
   return {};
 }
 
@@ -615,6 +635,8 @@ export async function rolloverTask(formData: FormData): Promise<void> {
   const caller = await getCaller();
   await caller.task.defer({ id: String(formData.get('id')), days: 1 });
   revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/focus');
 }
 
 export async function archiveTask(formData: FormData): Promise<{ error?: string }> {
@@ -628,6 +650,7 @@ export async function archiveTask(formData: FormData): Promise<{ error?: string 
 
   revalidatePath('/today');
   revalidatePath('/projects');
+  revalidatePath('/week');
   return {};
 }
 
@@ -642,6 +665,7 @@ export async function unarchiveTask(id: string): Promise<{ error?: string }> {
 
   revalidatePath('/today');
   revalidatePath('/projects');
+  revalidatePath('/week');
   return {};
 }
 
@@ -659,6 +683,7 @@ export async function setTaskBucket(formData: FormData): Promise<{ error?: strin
   }
 
   revalidatePath('/projects');
+  revalidatePath('/week');
   return {};
 }
 
@@ -773,6 +798,7 @@ export async function commitBraindump(
     });
     revalidatePath('/projects');
     revalidatePath('/today');
+  revalidatePath('/week');
     return { count: result.count };
   } catch (error) {
     return { error: messageFrom(error, 'Could not create those tasks.') };
@@ -800,7 +826,7 @@ export async function commitTaskToDay(input: {
   try {
     await caller.board.commit({
       taskId: input.taskId,
-      day: input.day ? localDateToInstant(input.day) : null,
+      day: input.day,
       // Passed through rather than defaulted: omitting it means "append",
       // which is a different instruction to "put it first".
       ...(input.position !== undefined ? { position: input.position } : {}),
@@ -822,7 +848,7 @@ export async function reorderBoardDay(input: {
 
   try {
     await caller.board.reorder({
-      day: localDateToInstant(input.day),
+      day: input.day,
       orderedIds: input.orderedIds,
     });
   } catch (error) {
@@ -842,8 +868,8 @@ export async function rolloverDay(formData: FormData): Promise<{ error?: string 
 
   try {
     const result = await caller.board.rollover({
-      from: localDateToInstant(from),
-      to: localDateToInstant(to),
+      from,
+      to,
     });
     revalidatePath('/week');
     revalidatePath('/today');
@@ -853,25 +879,13 @@ export async function rolloverDay(formData: FormData): Promise<{ error?: string 
   }
 }
 
-/**
- * `YYYY-MM-DD` to the instant the server should treat as that local day.
- *
- * Noon, not midnight. The procedures normalise to local midnight themselves,
- * and probing from the middle of the day means a DST transition cannot land
- * the result on the day before.
- */
-function localDateToInstant(date: string): Date {
-  const [year, month, day] = date.split('-').map(Number);
-  if (!year || !month || !day) throw new Error('Bad date.');
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-}
 
 /** Record that the morning plan was completed, so the prompt stops asking. */
 export async function markDayPlanned(day: string): Promise<{ error?: string }> {
   const caller = await getCaller();
 
   try {
-    await caller.day.markPlanned({ day: localDateToInstant(day) });
+    await caller.day.markPlanned({ day });
   } catch (error) {
     return { error: messageFrom(error, 'Could not save your plan.') };
   }

@@ -23,18 +23,21 @@ export interface HighlightGroup {
   color: string | null;
   minutes: number;
   counts: boolean;
-  items: Array<{ id: string; title: string; minutes: number }>;
+  items: Array<{ id: string; title: string; minutes: number; estimated: boolean }>;
+  hasEstimates: boolean;
 }
 
 export function Highlights({
   groups,
   totalMinutes,
   taskCount,
+  hasEstimates = false,
   heading = 'What today added up to',
 }: {
   groups: HighlightGroup[];
   totalMinutes: number;
   taskCount: number;
+  hasEstimates?: boolean;
   heading?: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -54,7 +57,7 @@ export function Highlights({
     '',
     ...groups.flatMap((group) => [
       `${group.name} — ${formatDuration(group.minutes)}`,
-      ...group.items.map((item) => `  · ${item.title}`),
+      ...group.items.map((item) => `  · ${item.title}${item.estimated ? ' (estimated)' : ''}`),
       '',
     ]),
   ]
@@ -78,7 +81,11 @@ export function Highlights({
           <span className="font-semibold">
             {taskCount} thing{taskCount === 1 ? '' : 's'}
           </span>
-          <span className="text-base-content/55"> · {formatDuration(totalMinutes)} of work</span>
+          <span className="text-base-content/55">
+            {' · '}
+            {formatDuration(totalMinutes)} of work
+            {hasEstimates ? ', part estimated' : ''}
+          </span>
         </p>
 
         <button type="button" onClick={copy} className="btn btn-ghost btn-xs rounded-lg">
@@ -116,7 +123,15 @@ export function Highlights({
               {group.items.map((item) => (
                 <li key={item.id} className="text-base-content/70 flex items-baseline gap-2 text-sm">
                   <span className="min-w-0 grow">{item.title}</span>
-                  <span className="text-base-content/35 shrink-0 text-xs tabular-nums">
+                  <span
+                    className="text-base-content/35 shrink-0 text-xs tabular-nums"
+                    title={
+                      item.estimated
+                        ? 'Estimated — this was finished without the timer running'
+                        : 'Measured by the timer'
+                    }
+                  >
+                    {item.estimated ? '~' : ''}
                     {formatDuration(item.minutes)}
                   </span>
                 </li>

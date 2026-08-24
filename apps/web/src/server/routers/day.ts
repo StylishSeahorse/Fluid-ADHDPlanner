@@ -13,6 +13,7 @@ import {
   type Interval,
   type LoadVerdict,
 } from '@fluid/core';
+import { localDate, resolveLocalDay } from '../local-date';
 import { protectedProcedure, router } from '../trpc';
 
 /**
@@ -578,7 +579,9 @@ export const dayRouter = router({
         minutes: number;
         /** False for groups whose area sits outside the work ledger. */
         counts: boolean;
-        items: Array<{ id: string; title: string; minutes: number }>;
+        items: Array<{ id: string; title: string; minutes: number; estimated: boolean }>;
+        /** True when any item in the group fell back to its estimate. */
+        hasEstimates: boolean;
       }
 
       const groups = new Map<string, Group>();
@@ -597,13 +600,19 @@ export const dayRouter = router({
           minutes: 0,
           counts,
           items: [],
+          hasEstimates: false,
         };
-        // Fall back to the estimate only when nothing was ever timed, so a
-        // task finished without the timer still appears rather than reading
-        // as zero minutes of work.
-        const minutes = task.actualMinutes > 0 ? task.actualMinutes : task.estimateMinutes;
+        // Fall back to the estimate only when nothing was ever timed, so a task
+        // finished without the timer still appears rather than reading as zero
+        // minutes of work. The fallback is *flagged* rather than folded in
+        // silently: this screen's whole job is to be true, and a total that
+        // mixes measured and guessed minutes without saying so is the one kind
+        // of lie it cannot afford.
+        const estimated = task.actualMinutes === 0;
+        const minutes = estimated ? task.estimateMinutes : task.actualMinutes;
         group.minutes += minutes;
-        group.items.push({ id: task.id, title: task.title, minutes });
+        group.hasEstimates = group.hasEstimates || estimated;
+        group.items.push({ id: task.id, title: task.title, minutes, estimated });
         groups.set(key, group);
       }
 
@@ -613,14 +622,16 @@ export const dayRouter = router({
         groups: ordered,
         totalMinutes: ordered.reduce((sum, group) => sum + group.minutes, 0),
         taskCount: done.length,
+        /** Some of `totalMinutes` came from estimates, not the timer. */
+        hasEstimates: ordered.some((group) => group.hasEstimates),
       };
     }),
 
   /** Mark the morning plan as done, so the prompt stops asking. */
   markPlanned: protectedProcedure
-    .input(z.object({ day: z.coerce.date() }))
+    .input(z.object({ day: localDate }))
     .mutation(async ({ ctx, input }) => {
-      const day = startOfLocalDay(input.day, ctx.user.timeZone);
+      const day = resolveLocalDay(input.day, ctx.user.timeZone);
       await prisma.dayLog.upsert({
         where: { userId_day: { userId: ctx.user.id, day } },
         create: { userId: ctx.user.id, day, plannedAt: new Date() },

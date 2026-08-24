@@ -90,15 +90,44 @@ export function DailyPlan({
   const over = hasWorkingHours && plannedMinutes > capacityMinutes;
   const remaining = capacityMinutes - plannedMinutes;
 
-  const run = (work: () => Promise<{ error?: string } | void>, onDone?: () => void) => {
+  /**
+   * Run a step, and never let it fail silently.
+   *
+   * Two failure shapes reach here. Most actions return `{ error }`, but a few
+   * — `completeTask` among them — throw instead, and a bare `await` inside a
+   * transition turns that into an unhandled rejection: the optimistic update
+   * has already removed the task from the list, so the user watches it vanish
+   * while nothing was saved. That is the worst possible outcome on the one
+   * screen whose job is to leave them with a plan they can trust.
+   */
+  const run = (
+    work: () => Promise<{ error?: string } | void>,
+    { onDone, rollback }: { onDone?: () => void; rollback?: () => void } = {},
+  ) => {
     setError(null);
     startTransition(async () => {
-      const result = await work();
-      if (result && 'error' in result && result.error) {
-        setError(result.error);
-        return;
+      const fail = (message: string) => {
+        // Undo the optimistic move as well as reporting it. Saying "nothing
+        // was lost" while the row is visibly gone from the list is worse than
+        // saying nothing at all.
+        rollback?.();
+        setError(message);
+      };
+
+      try {
+        const result = await work();
+        if (result && 'error' in result && result.error) {
+          fail(result.error);
+          return;
+        }
+        onDone?.();
+      } catch (thrown) {
+        fail(
+          thrown instanceof Error && thrown.message
+            ? thrown.message
+            : 'That did not save — it is still on your list. Try again.',
+        );
       }
-      onDone?.();
     });
   };
 
@@ -107,25 +136,49 @@ export function DailyPlan({
     setLeftovers((current) => current.filter((row) => row.id !== task.id));
     if (how === 'today') setToday((current) => [...current, task]);
 
-    run(() => {
-      if (how === 'today') return commitTaskToDay({ taskId: task.id, day: dayKey });
-      if (how === 'backlog') return commitTaskToDay({ taskId: task.id, day: null });
-      const data = new FormData();
-      data.set('id', task.id);
-      return completeTask(data).then(() => ({}));
-    });
+    run(
+      () => {
+        if (how === 'today') return commitTaskToDay({ taskId: task.id, day: dayKey });
+        if (how === 'backlog') return commitTaskToDay({ taskId: task.id, day: null });
+        const data = new FormData();
+        data.set('id', task.id);
+        return completeTask(data).then(() => ({}));
+      },
+      {
+        rollback: () => {
+          setLeftovers((current) =>
+            current.some((row) => row.id === task.id) ? current : [...current, task],
+          );
+          if (how === 'today') setToday((current) => current.filter((row) => row.id !== task.id));
+        },
+      },
+    );
   };
 
   const addToToday = (task: PlanTask) => {
     setBacklog((current) => current.filter((row) => row.id !== task.id));
     setToday((current) => [...current, task]);
-    run(() => commitTaskToDay({ taskId: task.id, day: dayKey }));
+    run(() => commitTaskToDay({ taskId: task.id, day: dayKey }), {
+      rollback: () => {
+        setToday((current) => current.filter((row) => row.id !== task.id));
+        setBacklog((current) =>
+          current.some((row) => row.id === task.id) ? current : [task, ...current],
+        );
+      },
+    });
   };
 
   const removeFromToday = (task: PlanTask) => {
     setToday((current) => current.filter((row) => row.id !== task.id));
     setBacklog((current) => [task, ...current]);
-    run(() => commitTaskToDay({ taskId: task.id, day: null }));
+    run(() => commitTaskToDay({ taskId: task.id, day: null }), {
+      rollback: () => {
+        setBacklog((current) => current.filter((row) => row.id !== task.id));
+        setToday((current) =>
+          current.some((row) => row.id === task.id) ? current : [...current, task],
+        );
+      },
+    });
   };
 
   const finish = () => {
@@ -138,7 +191,7 @@ export function DailyPlan({
         await rebuildPlan();
         return {};
       },
-      () => router.push('/today'),
+      { onDone: () => router.push('/today') },
     );
   };
 

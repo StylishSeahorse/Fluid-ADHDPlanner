@@ -43,7 +43,12 @@ export function ShutdownCard({
   loose: LooseTask[];
   shutdownAt: Date | null;
   reflection: string | null;
-  highlights: { groups: HighlightGroup[]; totalMinutes: number; taskCount: number };
+  highlights: {
+    groups: HighlightGroup[];
+    totalMinutes: number;
+    taskCount: number;
+    hasEstimates: boolean;
+  };
 }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -116,6 +121,7 @@ export function ShutdownCard({
           groups={highlights.groups}
           totalMinutes={highlights.totalMinutes}
           taskCount={highlights.taskCount}
+          hasEstimates={highlights.hasEstimates}
         />
 
         {loose.length > 0 ? (

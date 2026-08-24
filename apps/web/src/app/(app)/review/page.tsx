@@ -137,8 +137,9 @@ export default async function ReviewPage() {
               </ul>
 
               <p className="text-base-content/55 text-sm">
-                Logged time only, so this under-reports rather than guesses. The split is the
-                useful part — where your week actually went, not how much of it there was.
+                Time logged against work you <em>finished</em> in the last seven days, counted
+                on the day you finished it. Unfinished work is not in here, so treat the split
+                as the useful part rather than the total.
               </p>
             </div>
           </div>

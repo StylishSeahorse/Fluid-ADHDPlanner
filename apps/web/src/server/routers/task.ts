@@ -305,6 +305,24 @@ export const taskRouter = router({
     .input(taskInput.partial().extend({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...patch } = input;
+
+      // Scoping the *task* by userId is not enough: `projectId` is a foreign
+      // key the caller supplies, and nothing about owning the task implies
+      // owning the project it points at. Without this check a user could
+      // attach their task to someone else's project — and because `task.list`
+      // includes `project.name`, that stranger's project name would then be
+      // rendered on their own Tasks page.
+      //
+      // `create` has always checked this. `update` did not, which is exactly
+      // the kind of asymmetry that survives review: the dangerous path is the
+      // one that looks like a plain field patch.
+      if (patch.projectId) {
+        const owned = await prisma.project.count({
+          where: { id: patch.projectId, userId: ctx.user.id },
+        });
+        if (owned === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unknown project.' });
+      }
+
       const result = await prisma.task.updateMany({
         where: { id, userId: ctx.user.id },
         data: { ...patch, lastTouchedAt: new Date() },
