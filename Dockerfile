@@ -56,6 +56,41 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 
+# ---------------------------------------------------------------------------
+# Subscription sign-in providers
+#
+# The "browser sign-in" providers work by spawning an already-authenticated
+# CLI. On a laptop that CLI is the user's own install; in a container there is
+# no install and no credentials, so those providers were simply broken here —
+# offering a sign-in that could never complete.
+#
+# Installing the CLIs *into the image* fixes that, because both vendors ship a
+# first-party headless login that needs no local browser:
+#
+#   claude auth login          prints a URL, then "Paste code here if prompted"
+#   codex login --device-auth  RFC 8628 device authorization grant
+#
+# So the login happens inside the container, against the vendor, using their
+# own client — no credential scraping from the host, no user-agent spoofing,
+# no bind-mounting a laptop's token store into a server. The container ends up
+# with its own credentials, which is also what avoids the refresh race you get
+# when host and container both write the same token file.
+#
+# Deliberately in the `runner` stage rather than `base`: the builder has no use
+# for them, and this keeps them out of the build cache for source-only changes.
+# ---------------------------------------------------------------------------
+RUN npm install -g @anthropic-ai/claude-code @openai/codex \
+  && npm cache clean --force
+
+# Credentials live in these directories, and they must be writable by the user
+# the server actually runs as. Getting this wrong is silent: a login run as
+# root writes /root/.claude, the app runs as `nextjs`, and it simply never
+# sees the session. Compose mounts volumes here so a login survives a rebuild.
+ENV CLAUDE_CONFIG_DIR=/home/nextjs/.claude \
+    CODEX_HOME=/home/nextjs/.codex
+RUN mkdir -p "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" \
+  && chown -R nextjs:nodejs /home/nextjs
+
 # `output: standalone`'s tracing runs from the repo root, so it mirrors the
 # monorepo's own layout: the server lands at apps/web/server.js inside the
 # traced tree, not at its own root.

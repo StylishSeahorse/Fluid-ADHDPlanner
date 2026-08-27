@@ -68,7 +68,21 @@ services:
       GOOGLE_WEBHOOK_URL: ${GOOGLE_WEBHOOK_URL:-}
     ports:
       - "3030:3030"
+    # Sign-in credentials for the CLI providers, minted inside the container by
+    # `claude auth login` / `codex login --device-auth`. Named volumes rather
+    # than bind mounts from the host: the container holds its own session, so
+    # host and container never race to refresh the same token file — the exact
+    # clobbering problem that makes sharing a laptop's token store fragile.
+    #
+    # Log in once, as the user the server runs as:
+    #   docker compose exec -u nextjs web claude auth login
+    #   docker compose exec -u nextjs web codex login --device-auth
+    volumes:
+      - fluid-claude-auth:/home/nextjs/.claude
+      - fluid-codex-auth:/home/nextjs/.codex
 
 volumes:
   fluid-pgdata:
   fluid-redisdata:
+  fluid-claude-auth:
+  fluid-codex-auth:

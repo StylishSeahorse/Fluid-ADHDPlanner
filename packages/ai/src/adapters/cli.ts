@@ -41,7 +41,7 @@
  *    with no shell at all. stdin also keeps task titles out of the process
  *    list, where any other user on the machine could read them.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -65,6 +65,65 @@ import {
 import { avoidancePrompt, breakdownPrompt, chatPrompt, schedulingPrompt } from '../prompts/index';
 
 export type CliVariant = 'claude-code' | 'codex';
+
+/**
+ * The only environment variables the child is allowed to see.
+ *
+ * 4. NO AMBIENT SECRETS. `spawn` inherits the parent environment by default,
+ *    which in this app means DATABASE_URL, ENCRYPTION_KEK and every provider
+ *    API key would be handed to a process whose input is attacker-controllable
+ *    calendar text. That was survivable when the CLI ran on the user's own
+ *    laptop and the server did not; it is not survivable once the CLI is
+ *    installed alongside the server in a container.
+ *
+ *    So the child gets an explicit allowlist instead: what it needs to find
+ *    itself (PATH), resolve a home and its credential store, and render text.
+ *    Nothing else. Adding to this list means deciding a secret is safe to hand
+ *    to a prompt-injection target — which is almost never true.
+ */
+const INHERITED_ENV = [
+  'PATH',
+  // Not a secret, and this app's ProcessEnv type requires it to be present.
+  'NODE_ENV',
+  'HOME',
+  'USERPROFILE', // Windows' HOME
+  'LANG',
+  'LC_ALL',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  // Credential-store locations. Without these the CLI looks in the default
+  // home directory, which in a container is not where the login was written.
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  // Windows needs these to resolve system paths at all.
+  'SYSTEMROOT',
+  'SYSTEMDRIVE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMFILES',
+  'PROGRAMDATA',
+] as const;
+
+/**
+ * The child's environment: an allowlisted copy, never the parent's own.
+ *
+ * Exported for the test that pins this behaviour — a regression here is
+ * invisible in normal use and hands every secret to a subprocess.
+ */
+export function childEnv(
+  source: Record<string, string | undefined> = process.env,
+): NodeJS.ProcessEnv {
+  const env: Record<string, string> = {};
+  for (const key of INHERITED_ENV) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  // `NodeJS.ProcessEnv` is augmented in this workspace to require NODE_ENV,
+  // which the allowlist above carries. The assertion is about that declared
+  // shape, not about widening what the child can see.
+  return env as NodeJS.ProcessEnv;
+}
 
 /** Generous: a local agent is slower than an HTTP call, and cold starts happen. */
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -164,6 +223,102 @@ interface ClaudeCodeResult {
   is_error?: boolean;
   result?: string;
   total_cost_usd?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in status
+// ---------------------------------------------------------------------------
+
+export interface CliAuthStatus {
+  /** Is the binary present and runnable at all? */
+  installed: boolean;
+  /** Has a session been established? `null` when we could not tell. */
+  loggedIn: boolean | null;
+}
+
+/**
+ * Ask a CLI whether it is signed in.
+ *
+ * Worth doing rather than guessing, because the settings page previously
+ * printed sign-in instructions unconditionally — including in environments
+ * where the CLI was not installed and the instructions could never work. A
+ * screen that states the actual situation beats one that recites a command.
+ *
+ * Same security rules as inference: fixed argv from this module, no user
+ * input, no shell, allowlisted environment. Both CLIs expose a machine
+ * readable status (`claude auth status` prints JSON; `codex login status`
+ * exits non-zero when signed out), so neither needs output parsing beyond the
+ * shallowest possible check.
+ */
+export function cliAuthStatus(
+  variant: CliVariant,
+  timeoutMs = 15_000,
+): Promise<CliAuthStatus> {
+  const command = resolveCommand(variant === 'codex' ? 'codex' : 'claude', variant);
+  const args = variant === 'codex' ? ['login', 'status'] : ['auth', 'status'];
+
+  return new Promise<CliAuthStatus>((resolve) => {
+    let stdout = '';
+    let settled = false;
+    const done = (status: CliAuthStatus) => {
+      if (settled) return;
+      settled = true;
+      resolve(status);
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      const statusOptions: SpawnOptionsWithoutStdio = {
+        shell: false,
+        windowsHide: true,
+        env: childEnv(),
+      };
+      child = spawn(command, args, statusOptions);
+    } catch {
+      done({ installed: false, loggedIn: null });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      // Installed — it started — but hung. Reporting "signed out" would be a
+      // guess, and the UI can say "could not tell" honestly.
+      done({ installed: true, loggedIn: null });
+    }, timeoutMs);
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+      if (stdout.length > 64_000) child.kill('SIGKILL');
+    });
+    // Drained so the child never blocks on a full stderr pipe.
+    child.stderr?.on('data', () => {});
+
+    child.on('error', () => {
+      clearTimeout(timer);
+      done({ installed: false, loggedIn: null });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+
+      if (variant === 'claude-code') {
+        // `{"loggedIn": true, "authMethod": "..."}` — parsed rather than
+        // string-matched so a message merely containing the word cannot
+        // masquerade as a session.
+        try {
+          const parsed = JSON.parse(stdout) as { loggedIn?: unknown };
+          if (typeof parsed.loggedIn === 'boolean') {
+            return done({ installed: true, loggedIn: parsed.loggedIn });
+          }
+        } catch {
+          // Fall through: it ran, so it is installed; the shape was a surprise.
+        }
+        return done({ installed: true, loggedIn: null });
+      }
+
+      done({ installed: true, loggedIn: code === 0 });
+    });
+  });
 }
 
 export class CliAdapter implements AIProvider {
@@ -360,7 +515,7 @@ export class CliAdapter implements AIProvider {
     ].join('\n');
 
     return new Promise<string>((resolve, reject) => {
-      const child = spawn(this.command, args, {
+      const spawnOptions: SpawnOptionsWithoutStdio = {
         // No shell, on any platform. Both CLIs ship as real executables, and
         // Windows' CreateProcess appends `.exe` when resolving a bare name, so
         // a shell buys nothing here and would make every argv element a
@@ -370,7 +525,10 @@ export class CliAdapter implements AIProvider {
         shell: false,
         cwd: this.cwd,
         windowsHide: true,
-      });
+        // Rule 4: an allowlist, not the parent environment. See INHERITED_ENV.
+        env: childEnv(),
+      };
+      const child = spawn(this.command, args, spawnOptions);
 
       let stdout = '';
       let stderr = '';

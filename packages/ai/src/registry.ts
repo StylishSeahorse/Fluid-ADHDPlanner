@@ -212,10 +212,14 @@ export const PROVIDERS: readonly ProviderDefinition[] = [
     allowLocalhost: true,
     cli: { command: 'claude', variant: 'claude-code' },
     signIn: {
-      command: 'claude',
+      // `claude auth login`, not a bare `claude`: the subcommand is the
+      // headless-capable path. With no local browser it prints an authorize
+      // URL and waits on "Paste code here if prompted", which is what makes
+      // signing in from inside a container possible at all.
+      command: 'claude auth login',
       install: 'https://claude.com/product/claude-code',
       detail:
-        'Run it once in a terminal and sign in with your Claude account. This app then reuses that session — the official way to use a Claude subscription here.',
+        'Sign in with your Claude account. Prints a URL and takes a pasted code, so it works with no browser on the machine running this — including in a container. The app then reuses that session.',
     },
     // An alias rather than a pinned version, so it follows whatever the CLI
     // currently considers current.
@@ -241,10 +245,14 @@ export const PROVIDERS: readonly ProviderDefinition[] = [
     allowLocalhost: true,
     cli: { command: 'codex', variant: 'codex' },
     signIn: {
-      command: 'codex login',
+      // `--device-auth` rather than a bare `codex login`: the plain form binds
+      // a callback listener on localhost:1455 and expects a browser on the
+      // same machine, which a container does not have. Codex's own output
+      // points at this flag for exactly that case.
+      command: 'codex login --device-auth',
       install: 'https://learn.chatgpt.com/docs/codex/cli',
       detail:
-        'Signs in with your ChatGPT account in a browser. This app then reuses that session — the only sanctioned way to spend a ChatGPT subscription here, since OpenAI publishes no equivalent of Anthropic’s SDK-readable login profile.',
+        'Signs in with your ChatGPT account using a device code — it shows a code to enter on any other device, so no browser is needed here. The app then reuses that session.',
     },
     // No `cliModelOptions`: unlike Claude Code, `codex --help` documents no
     // alias set — `-m/--model` takes an arbitrary string with nothing to

@@ -1,4 +1,5 @@
 import 'server-only';
+import { existsSync } from 'node:fs';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { prisma } from '@fluid/db';
@@ -10,6 +11,7 @@ import {
   UnsafeEndpointError,
 } from '@fluid/ai';
 import { OpenAICompatibleAdapter } from '@fluid/ai/adapters/openai-compatible';
+import { cliAuthStatus } from '@fluid/ai/adapters/cli';
 import { protectedProcedure, router } from '../trpc';
 import { buildProvider, encryptApiKey, resolveConfig } from '../services/ai-provider';
 import { checkReadiness } from '../services/ai-diagnostics';
@@ -153,6 +155,28 @@ export const aiRouter = router({
   }),
 
   /** Cheap pre-flight: is this provider set up, and if not, what fixes it? */
+  /**
+   * Whether the sign-in CLIs are installed and signed in, right here.
+   *
+   * The settings page used to print sign-in instructions unconditionally, so
+   * in a container — where the CLI was absent and the credentials were on the
+   * user's laptop — it recited a command that could never work. Asking the
+   * binary is cheap and turns that into a statement of fact.
+   *
+   * Also reports whether this process is containerized, because the command to
+   * run differs: on a host you run `claude auth login`, but if the server is
+   * in a container you have to run it *in that container*, as the user the
+   * server runs as, or the credentials land somewhere it will never read.
+   */
+  cliStatus: protectedProcedure.query(async () => {
+    const [claude, codex] = await Promise.all([
+      cliAuthStatus('claude-code'),
+      cliAuthStatus('codex'),
+    ]);
+
+    return { claude, codex, containerized: isContainerized() };
+  }),
+
   readiness: protectedProcedure.query(async ({ ctx }) => checkReadiness(ctx.user.id)),
 
   /** Exercise the exact configuration the scheduler would use. */
@@ -187,3 +211,14 @@ export const aiRouter = router({
     }
   }),
 });
+
+/**
+ * Are we running inside a container?
+ *
+ * `/.dockerenv` is Docker's own marker and `/run/.containerenv` is Podman's.
+ * A false negative only costs a slightly wrong hint in the UI, so this stays a
+ * cheap file check rather than something that parses cgroups.
+ */
+function isContainerized(): boolean {
+  return existsSync('/.dockerenv') || existsSync('/run/.containerenv');
+}

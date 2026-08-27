@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CliAdapter } from './cli';
+import { childEnv, CliAdapter } from './cli';
 import { getProvider, PROVIDERS } from '../registry';
 
 /**
@@ -181,9 +181,16 @@ describe('subscription sign-in metadata', () => {
     // The app deliberately runs no OAuth flow of its own — neither vendor
     // publishes a client that lets a third party spend a consumer
     // subscription. Naming the official command is the honest substitute.
+    //
+    // These must be the *headless-capable* forms. The server may well be in a
+    // container with no browser and no localhost listener, and the plain
+    // commands assume both: a bare `claude` opens an interactive session, and
+    // a bare `codex login` binds a callback on localhost:1455. The subcommands
+    // pinned here print a URL and accept a pasted or device code instead,
+    // which is what makes signing in from inside a container possible.
     const expected: Record<string, string> = {
-      'claude-code': 'claude',
-      codex: 'codex login',
+      'claude-code': 'claude auth login',
+      codex: 'codex login --device-auth',
       'anthropic-oauth': 'ant auth login',
     };
 
@@ -206,5 +213,72 @@ describe('subscription sign-in metadata', () => {
     expect(getProvider('anthropic').requiresKey).toBe(true);
     expect(getProvider('anthropic').signIn).toBeUndefined();
     expect(getProvider('anthropic-oauth').protocol).toBe('anthropic');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule 4: no ambient secrets
+//
+// `spawn` inherits the parent environment unless told otherwise, and this
+// process holds the database URL, the encryption key, and every provider API
+// key. The child's input is attacker-controllable calendar text. A regression
+// here is completely invisible in normal use — the CLI keeps working — which
+// is exactly why it needs a test.
+// ---------------------------------------------------------------------------
+describe('child environment', () => {
+  const secrets = {
+    DATABASE_URL: 'postgresql://fluid:hunter2@postgres:5432/fluid',
+    ENCRYPTION_KEK: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    ANTHROPIC_API_KEY: 'sk-ant-secret',
+    OPENAI_API_KEY: 'sk-openai-secret',
+    REDIS_URL: 'redis://redis:6379',
+    SESSION_SECRET: 'do-not-leak',
+    AWS_SECRET_ACCESS_KEY: 'also-do-not-leak',
+  };
+
+  it('passes none of the app’s secrets to the child', () => {
+    const env = childEnv({ ...secrets, PATH: '/usr/bin' });
+
+    for (const key of Object.keys(secrets)) {
+      expect(env).not.toHaveProperty(key);
+    }
+    // And not merely absent by name — the values must not appear at all, in
+    // case something is ever copied under a different key.
+    const serialized = JSON.stringify(env);
+    for (const value of Object.values(secrets)) {
+      expect(serialized).not.toContain(value);
+    }
+  });
+
+  it('passes through what the CLI genuinely needs', () => {
+    const env = childEnv({
+      PATH: '/usr/local/bin:/usr/bin',
+      HOME: '/home/nextjs',
+      CLAUDE_CONFIG_DIR: '/home/nextjs/.claude',
+      CODEX_HOME: '/home/nextjs/.codex',
+      DATABASE_URL: 'postgresql://leak',
+    });
+
+    expect(env.PATH).toBe('/usr/local/bin:/usr/bin');
+    expect(env.HOME).toBe('/home/nextjs');
+    // Without these the CLI reads the default home and never finds the login
+    // that was written into the container's credential volume.
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/home/nextjs/.claude');
+    expect(env.CODEX_HOME).toBe('/home/nextjs/.codex');
+    expect(env.DATABASE_URL).toBeUndefined();
+  });
+
+  it('is an allowlist, so a newly added secret is excluded by default', () => {
+    // The failure mode this guards: someone adds a variable to the app and it
+    // silently reaches the child because the code copied `process.env`.
+    const env = childEnv({ PATH: '/usr/bin', SOME_FUTURE_TOKEN: 'nope' });
+
+    expect(Object.keys(env)).toEqual(['PATH']);
+  });
+
+  it('omits keys that are unset rather than passing undefined through', () => {
+    const env = childEnv({ PATH: '/usr/bin' });
+
+    expect('HOME' in env).toBe(false);
   });
 });

@@ -25,6 +25,14 @@ export interface ProviderOption {
   cliModelOptions: { value: string; label: string }[] | null;
 }
 
+/** What the server found when it asked the sign-in CLIs about themselves. */
+export interface CliStatus {
+  claude: { installed: boolean; loggedIn: boolean | null };
+  codex: { installed: boolean; loggedIn: boolean | null };
+  /** The command differs when the server is in a container. */
+  containerized: boolean;
+}
+
 const CUSTOM_MODEL = '__custom__';
 
 /**
@@ -128,9 +136,11 @@ const CONSENTS = [
 export function AiProviderForm({
   providers,
   current,
+  cliStatus,
 }: {
   providers: ProviderOption[];
   current: CurrentAiSettings;
+  cliStatus: CliStatus;
 }) {
   const [state, formAction, saving] = useActionState<ActionState, FormData>(
     saveAiSettings,
@@ -214,28 +224,7 @@ export function AiProviderForm({
           honest, and more useful, than a button that could not work.
         */}
         {provider.signIn ? (
-          <div className="border-primary/25 bg-primary/5 rounded-box space-y-2 border p-3">
-            <p className="text-sm font-medium">Sign in once, in a terminal</p>
-            <p className="text-base-content/60 text-xs">{provider.signIn.detail}</p>
-
-            <pre className="bg-base-300/60 overflow-x-auto rounded-lg px-3 py-2 font-mono text-xs">
-              <code>{provider.signIn.command}</code>
-            </pre>
-
-            {provider.signIn.install ? (
-              <p className="text-base-content/50 text-xs">
-                Not installed?{' '}
-                <a
-                  href={provider.signIn.install}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="link"
-                >
-                  Install instructions
-                </a>
-              </p>
-            ) : null}
-          </div>
+          <SignInPanel provider={provider} status={cliStatus} />
         ) : null}
 
         {provider.editableBaseUrl && !provider.isCli ? (
@@ -422,5 +411,105 @@ export function AiProviderForm({
         </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * Sign-in state, and the command that actually applies here.
+ *
+ * Two things this fixes. It reports whether the CLI is installed and signed in
+ * rather than reciting a command regardless — the old version showed the same
+ * instructions in a container where the binary did not exist and the command
+ * could never have worked.
+ *
+ * And when the server is containerized it prefixes the command, because the
+ * login has to happen *inside* that container as the user the server runs as.
+ * A login run on the host, or as root, writes credentials the server will
+ * never read — and it fails silently, which is the worst way to fail.
+ */
+function SignInPanel({
+  provider,
+  status,
+}: {
+  provider: ProviderOption;
+  status: CliStatus;
+}) {
+  const signIn = provider.signIn;
+  if (!signIn) return null;
+
+  // `anthropic-oauth` signs in through the Anthropic SDK's own profile rather
+  // than one of the two CLIs, so there is no binary here to interrogate.
+  const cli =
+    provider.id === 'claude-code' ? status.claude : provider.id === 'codex' ? status.codex : null;
+
+  const command = status.containerized
+    ? `docker compose exec -u nextjs web ${signIn.command}`
+    : signIn.command;
+
+  const tone = !cli
+    ? 'border-primary/25 bg-primary/5'
+    : cli.loggedIn
+      ? 'border-success/30 bg-success/8'
+      : cli.installed
+        ? 'border-warning/30 bg-warning/8'
+        : 'border-error/30 bg-error/8';
+
+  return (
+    <div className={`rounded-box space-y-2 border p-3 ${tone}`}>
+      <p className="text-sm font-medium">
+        {!cli
+          ? 'Sign in once, in a terminal'
+          : cli.loggedIn
+            ? 'Signed in and ready'
+            : !cli.installed
+              ? 'Not installed here'
+              : 'Installed, but not signed in'}
+      </p>
+
+      <p className="text-base-content/60 text-xs">{signIn.detail}</p>
+
+      {cli && !cli.installed ? (
+        <p className="text-base-content/70 text-xs">
+          This provider runs the CLI on the machine serving this page, and it is not present
+          there. Install it, or use an API-key provider instead.
+        </p>
+      ) : null}
+
+      {!cli?.loggedIn ? (
+        <>
+          <pre className="bg-base-300/60 overflow-x-auto rounded-lg px-3 py-2 font-mono text-xs">
+            <code>{command}</code>
+          </pre>
+
+          {status.containerized ? (
+            <p className="text-base-content/50 text-xs">
+              Run it inside the container, as <code>nextjs</code> — a login run on your own
+              machine, or as root, writes credentials this server cannot read. Both CLIs print a
+              URL and take a pasted code, so no browser is needed in the container.
+            </p>
+          ) : null}
+        </>
+      ) : null}
+
+      {cli?.loggedIn === null && cli.installed ? (
+        <p className="text-base-content/50 text-xs">
+          Could not read the sign-in state — the CLI is installed but did not answer. Test
+          connection will say for certain.
+        </p>
+      ) : null}
+
+      {signIn.install && cli && !cli.installed ? (
+        <p className="text-base-content/50 text-xs">
+          <a
+            href={signIn.install}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="link"
+          >
+            Install instructions
+          </a>
+        </p>
+      ) : null}
+    </div>
   );
 }

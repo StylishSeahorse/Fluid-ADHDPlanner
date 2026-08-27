@@ -34,11 +34,12 @@ export default async function SettingsPage() {
   const user = await requireUser();
   const caller = await getCaller();
 
-  const [preferences, calendars, autonomy, aiSettings, areas, routines] = await Promise.all([
+  const [preferences, calendars, autonomy, aiSettings, cliStatus, areas, routines] = await Promise.all([
     prisma.userPreferences.findUnique({ where: { userId: user.id } }),
     caller.calendar.connections(),
     caller.agent.autonomy(),
     caller.ai.settings(),
+    caller.ai.cliStatus(),
     caller.area.list(),
     caller.routine.list(),
   ]);
@@ -215,7 +216,11 @@ export default async function SettingsPage() {
 
       <SectionTitle>AI provider</SectionTitle>
       {features.ai ? (
-        <AiProviderForm providers={aiSettings.providers} current={aiSettings.current} />
+        <AiProviderForm
+          providers={aiSettings.providers}
+          current={aiSettings.current}
+          cliStatus={cliStatus}
+        />
       ) : (
         <div className="card bg-base-100 border-base-200 border shadow-sm">
           <div className="card-body">
