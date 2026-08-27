@@ -128,13 +128,46 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 324 tests
+npm run verify   # lint + typecheck + 341 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
 on its own and every screen works. Add a key in Settings when you want the AI
 ordering hint and the calendar agent; set `AI_DISABLED=1` to switch the whole
 surface off.
+
+### Running the built image instead
+
+`npm run dev` is for working on Fluid. To run it the way it actually ships —
+production build, `next start`, no dev server:
+
+```bash
+docker compose up -d --build
+```
+
+This builds the image from the repo root (needed so the workspace packages are
+in the build context), then starts Postgres, Redis and the app together. Apply
+migrations once against it and you're on **http://localhost:3030**:
+
+```bash
+npm run migrate:deploy -w @fluid/db
+```
+
+**Subscription sign-in works here too.** The image ships with the `claude` and
+`codex` CLIs installed, so the "browser sign-in" AI providers in Settings are
+usable in the container, not just on a laptop. Sign in once, as the user the
+server actually runs as — a login as root or on the host writes credentials
+this server will never see:
+
+```bash
+docker compose exec -u nextjs web claude auth login
+docker compose exec -u nextjs web codex login --device-auth
+```
+
+Both print a URL and take a pasted or device code, so no browser is needed
+inside the container. Credentials persist in named volumes across rebuilds.
+Settings shows the real state — installed, signed in, or neither — rather than
+reciting a command regardless of whether it could work.
 
 ---
 
@@ -210,7 +243,7 @@ property that stops a full resync becoming mass data loss.
 ## Status
 
 **Running.** Auth, tasks and projects, the scheduler, all five screens, both
-full-screen flows and the AI calendar agent work end to end. 324 tests.
+full-screen flows and the AI calendar agent work end to end. 341 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -231,6 +264,9 @@ full-screen flows and the AI calendar agent work end to end. 324 tests.
 - Adapters for Anthropic and every OpenAI-compatible provider (OpenAI,
   OpenRouter, CometAPI, Gemini, Groq, DeepSeek, Together, Mistral, Ollama,
   custom), configurable per user with their own key
+- Subscription sign-in (Claude Pro/Max, ChatGPT) via the official `claude` and
+  `codex` CLIs — installed in the Docker image itself, so this works the same
+  way in the container as on a laptop, using each vendor's own headless login
 
 </details>
 
@@ -276,3 +312,11 @@ contact.
 - **If the test suite dies with `cannot allocate memory`**, look for an orphaned
   `next dev` process before suspecting the code — it grows to several GB over a
   long session and starves esbuild.
+- **The CLI adapter never inherits `process.env`.** `childEnv()` in
+  `packages/ai/src/adapters/cli.ts` is an allowlist, not a filter — anything
+  the spawned `claude`/`codex` process should see has to be added to it by
+  name. This exists because that process handles attacker-controllable
+  calendar text; copying the parent environment would hand it `DATABASE_URL`,
+  `ENCRYPTION_KEK` and every provider key. Adding a new env var to the app does
+  not require touching this list, and that is deliberate — assume it should
+  stay out unless you have a specific reason the CLI needs it.
