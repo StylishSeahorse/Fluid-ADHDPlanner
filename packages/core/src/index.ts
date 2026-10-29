@@ -4,3 +4,6 @@ export * from './actions';
 export * from './sync/reconcile';
 export * from './capture/braindump';
 export * from './notifications/due';
+export * from './board/positions';
+export * from './board/query';
+export * from './board/columns';

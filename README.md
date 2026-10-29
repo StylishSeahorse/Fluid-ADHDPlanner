@@ -44,12 +44,13 @@ Three things this gets right that a to-do list cannot:
 
 ---
 
-## The five screens
+## The screens
 
 | Screen | The question it answers | What is on it |
 |---|---|---|
 | **Today** | What am I doing now? | The day as a list beside the day as a timeline, plus the rituals that bracket it |
 | **Week** | Which day does this belong to? | Board, Calendar and Agenda are *lenses* on one page — same seven days, three readings |
+| **Boards** | Where is this work in its project? | Kanban boards with your own columns, labels, checklists, comments and history; plan any card into a day from the card |
 | **Tasks** | What exists at all? | Backlog by horizon, projects, braindump capture |
 | **Review** | How did that go? | Objectives, estimate calibration, where the time went, what the AI did |
 | **Settings** | How should this behave? | Accessibility, areas, routines, focus rhythm, AI autonomy and provider, calendars |
@@ -128,7 +129,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 366 tests
+npm run verify   # lint + typecheck + 396 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -293,8 +294,8 @@ property that stops a full resync becoming mass data loss.
 ## Status
 
 **Running.** Auth, tasks and projects, the scheduler, all five screens, both
-full-screen flows, the AI calendar agent, and the installable app with push
-notifications work end to end. 366 tests.
+full-screen flows, project boards, the AI calendar agent, and the installable
+app with push notifications work end to end. 396 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -318,6 +319,11 @@ notifications work end to end. 366 tests.
 - Subscription sign-in (Claude Pro/Max, ChatGPT) via the official `claude` and
   `codex` CLIs — installed in the Docker image itself, so this works the same
   way in the container as on a laptop, using each vendor's own headless login
+- Project boards: custom columns with WIP limits, drag-and-drop and a keyboard
+  "Move to…" dialog, labels, checklists, comments, activity history, 30-day
+  trash with restore, and a search grammar shared by every filter box
+  (`label:client due:week -status:done`). A card is the same task row Today
+  and Week show — completing it anywhere moves it to Done
 - Installable PWA (manifest, service worker, offline screen, home-screen
   shortcuts) and Web Push: session reminders plus plan/wrap-up prompts, with
   quiet hours, per-kind switches and per-device management
@@ -334,6 +340,8 @@ notifications work end to end. 366 tests.
 - BullMQ worker — no background calendar sync yet. Notifications are sent by a
   small dispatcher inside the web process instead (see the maintainer notes)
 - Body doubling, Gantt view, task import
+- On boards: attachments, a table view, board templates, live updates between
+  open tabs, and sharing a workspace with other people
 - Booking links, an AI notetaker, and Slack/Teams delivery of the daily summary
   (it copies to the clipboard instead)
 - AI settings toggles are enforced server-side but not yet editable in the UI

@@ -7,6 +7,8 @@ import { withFallback } from '@fluid/ai';
 import { localDayOfWeek, parseBraindump, startOfLocalDay } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
 import { getAiProvider } from '../services/ai-provider';
+import { categoryFor, completeTaskInTx, uncompleteTaskInTx } from '../services/task-lifecycle';
+import { ensureBoards } from '../services/boards';
 
 /**
  * Every mutation is scoped by `userId` in its WHERE clause rather than
@@ -83,7 +85,7 @@ export const taskRouter = router({
       areaId = project.areaId;
     }
 
-    return prisma.task.create({
+    const created = await prisma.task.create({
       data: {
         userId: ctx.user.id,
         title: input.title,
@@ -99,6 +101,10 @@ export const taskRouter = router({
         status: 'READY',
       },
     });
+
+    // Every card has a home: on its project's board, or the Inbox.
+    await ensureBoards(ctx.user.id);
+    return created;
   }),
 
   /**
@@ -188,6 +194,7 @@ export const taskRouter = router({
         })),
       });
 
+      await ensureBoards(ctx.user.id);
       return { count: created.count };
     }),
 
@@ -342,34 +349,7 @@ export const taskRouter = router({
         });
         if (!task) throw new TRPCError({ code: 'NOT_FOUND' });
 
-        await tx.task.update({
-          where: { id: task.id },
-          data: { status: 'DONE', completedAt: now, lastTouchedAt: now },
-        });
-
-        // Feed the estimation coach. Only real observations count — a task
-        // completed without any tracked time teaches us nothing.
-        if (task.actualMinutes > 0) {
-          await tx.timeEstimateSample.create({
-            data: {
-              userId: ctx.user.id,
-              taskId: task.id,
-              category: categoryFor(task.title),
-              estimatedMinutes: task.estimateMinutes,
-              actualMinutes: task.actualMinutes,
-            },
-          });
-        }
-
-        // Free the calendar: proposed blocks vanish, accepted ones are marked
-        // complete rather than deleted, so the week's history stays honest.
-        await tx.scheduledBlock.deleteMany({
-          where: { taskId: task.id, state: 'PROPOSED' },
-        });
-        await tx.scheduledBlock.updateMany({
-          where: { taskId: task.id, state: 'ACCEPTED' },
-          data: { state: 'COMPLETED' },
-        });
+        await completeTaskInTx(tx, ctx.user.id, task, now);
       });
     }),
 
@@ -392,26 +372,7 @@ export const taskRouter = router({
         });
         if (!task) throw new TRPCError({ code: 'NOT_FOUND' });
 
-        await tx.task.update({
-          where: { id: task.id },
-          data: { status: 'READY', completedAt: null, lastTouchedAt: now },
-        });
-
-        // Drop the sample completing it produced. Leaving it would teach the
-        // estimation coach from an event the user just said did not happen.
-        const sample = await tx.timeEstimateSample.findFirst({
-          where: { taskId: task.id, userId: ctx.user.id },
-          orderBy: { recordedAt: 'desc' },
-        });
-        if (sample) await tx.timeEstimateSample.delete({ where: { id: sample.id } });
-
-        // Only sessions still ahead of us go back to ACCEPTED. A block whose
-        // time has already passed was genuinely sat through, and marking it
-        // upcoming again would put a session in the past on the calendar.
-        await tx.scheduledBlock.updateMany({
-          where: { taskId: task.id, state: 'COMPLETED', endsAt: { gt: now } },
-          data: { state: 'ACCEPTED' },
-        });
+        await uncompleteTaskInTx(tx, ctx.user.id, task, now);
       });
     }),
 
@@ -664,15 +625,4 @@ async function creditElapsed(tx: Db, task: Task, now: Date): Promise<number> {
   });
 
   return minutes;
-}
-
-/** Local copy of the categoriser, kept off the AI path so it always runs. */
-function categoryFor(title: string): string {
-  const lower = title.toLowerCase();
-  if (/\b(email|reply|respond|message|call)\b/.test(lower)) return 'communication';
-  if (/\b(write|draft|report|document|notes?)\b/.test(lower)) return 'writing';
-  if (/\b(review|read|check)\b/.test(lower)) return 'review';
-  if (/\b(plan|organi[sz]e|prep)\b/.test(lower)) return 'planning';
-  if (/\b(code|build|fix|debug|deploy)\b/.test(lower)) return 'development';
-  return 'general';
 }

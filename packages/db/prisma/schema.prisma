@@ -60,6 +60,9 @@ model User {
   auditLogs           AuditLog[]
   pushSubscriptions   PushSubscription[]
   notifications       NotificationDelivery[]
+  memberships         WorkspaceMember[]
+  comments            Comment[]
+  activity            ActivityEvent[]
 
   @@map("users")
 }
@@ -442,6 +445,7 @@ model Project {
   area       Area?       @relation(fields: [areaId], references: [id], onDelete: SetNull)
   tasks      Task[]
   milestones Milestone[]
+  board      Board?
 
   @@index([userId, status])
   @@index([areaId])
@@ -612,6 +616,22 @@ model Task {
   scheduledBlocks ScheduledBlock[]
   estimateSamples TimeEstimateSample[]
 
+  // --- Board placement --------------------------------------------------------
+  /// Where this card lives. One row, many views: the board reads these three
+  /// fields, My Day reads `plannedFor`, the calendar reads the blocks — nothing
+  /// is copied. Null only for subtasks, which live inside their parent's card.
+  boardId  String?
+  columnId String?
+  /// Fractional ordering key within the column (see @fluid/core positions).
+  /// Byte-ordered, so it must be compared with COLLATE "C" semantics.
+  position String?
+
+  board          Board?          @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  column         BoardColumn?    @relation(fields: [columnId], references: [id], onDelete: SetNull)
+  labels         TaskLabel[]
+  checklistItems ChecklistItem[]
+  comments       Comment[]
+
   @@index([userId, status])
   @@index([userId, deadline])
   @@index([userId, timeBucket])
@@ -621,6 +641,8 @@ model Task {
   @@index([parentId])
   @@index([objectiveId])
   @@index([areaId])
+  @@index([columnId, position])
+  @@index([boardId])
   @@map("tasks")
 }
 
@@ -1314,4 +1336,213 @@ model ServerKey {
   createdAt DateTime @default(now())
 
   @@map("server_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces and boards
+// ---------------------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+/// The boundary everything on a board belongs to.
+///
+/// Every account gets a personal workspace. Sharing one with other people is a
+/// later phase; the membership table exists now so that boards are owned by a
+/// workspace from the start, rather than by a user and migrated later.
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  isPersonal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  members  WorkspaceMember[]
+  boards   Board[]
+  labels   Label[]
+  activity ActivityEvent[]
+  trash    TrashedCard[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+/// A Kanban board. Belongs to a workspace and, usually, to a project.
+model Board {
+  id          String  @id @default(cuid())
+  workspaceId String
+  /// Null for boards that are not about one project — the Inbox, mainly.
+  projectId   String? @unique
+  name        String
+  /// Where tasks created outside any board land. One per workspace.
+  isInbox     Boolean @default(false)
+  position    String
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  columns   BoardColumn[]
+  tasks     Task[]
+
+  @@index([workspaceId, position])
+  @@map("boards")
+}
+
+/// What a column means for the work in it. Null means "nothing" — a column
+/// can be purely organisational, like "Waiting on client".
+enum ColumnCategory {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model BoardColumn {
+  id       String          @id @default(cuid())
+  boardId  String
+  name     String
+  position String
+  category ColumnCategory?
+  /// Work-in-progress limit. Over it, the column warns — it never refuses.
+  wipLimit Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([boardId, position])
+  @@map("board_columns")
+}
+
+model Label {
+  id          String @id @default(cuid())
+  workspaceId String
+  name        String
+  /// One of a fixed palette of names (see components/labels.ts), not a hex
+  /// value — so labels stay legible in every theme, including high contrast.
+  color       String @default("indigo")
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     TaskLabel[]
+
+  @@unique([workspaceId, name])
+  @@map("labels")
+}
+
+model TaskLabel {
+  taskId  String
+  labelId String
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+  @@index([labelId])
+  @@map("task_labels")
+}
+
+/// A checklist line on a card. Lighter than a subtask: no estimate, never
+/// scheduled — but promotable to a real subtask when it turns out to be work.
+model ChecklistItem {
+  id        String    @id @default(cuid())
+  taskId    String
+  text      String
+  position  String
+  checkedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, position])
+  @@map("checklist_items")
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  taskId    String
+  authorId  String?
+  body      String
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+
+  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("comments")
+}
+
+/// What happened to a card or board, and who did it.
+///
+/// Append-only: nothing in the app updates or deletes these rows except the
+/// cascade when a workspace goes. `summary` is written for a human at the time,
+/// so the history stays readable even after the things it names change.
+model ActivityEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  boardId     String?
+  /// Plain string, not a relation: the history of a deleted card must survive it.
+  taskId      String?
+  actorId     String?
+  /// USER, ENGINE, AUTOMATION, AI, SYNC.
+  source      String   @default("USER")
+  /// created, moved, completed, reopened, edited, commented, deleted, restored…
+  verb        String
+  summary     String
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([boardId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("activity_events")
+}
+
+/// A deleted card, kept whole for 30 days so it can be restored.
+///
+/// A snapshot rather than a `deletedAt` flag on the task: a soft-deleted row
+/// would have to be filtered out of every query in the app — the scheduler,
+/// My Day, reports — and a single forgotten filter would schedule a deleted
+/// task. A snapshot cannot leak anywhere.
+model TrashedCard {
+  id          String   @id @default(cuid())
+  workspaceId String
+  boardId     String?
+  /// The card's original id, reused on restore so links to it work again.
+  taskId      String
+  title       String
+  snapshot    Json
+  trashedById String?
+  trashedAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, trashedAt])
+  @@index([boardId, trashedAt])
+  @@map("trashed_cards")
 }

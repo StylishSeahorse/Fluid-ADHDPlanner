@@ -6,6 +6,7 @@ import { startOfLocalDay } from '@fluid/core';
 import { localDate, resolveLocalDay } from '../local-date';
 import { protectedProcedure, router } from '../trpc';
 import { weekShape } from './day';
+import { moveToCategoryColumn } from '../services/boards';
 
 /**
  * The week board: days as columns, work as cards.
@@ -216,6 +217,10 @@ export const boardRouter = router({
         });
 
         await renumber(tx, ctx.user.id, day, task.id, input.position);
+
+        // Committed out of the backlog: its card leaves the Backlog column
+        // too, so the project board and the week agree about what it is.
+        if (day && task.status === 'BACKLOG') await moveToCategoryColumn(tx, task.id, 'TODO', ['BACKLOG']);
       });
 
       return { ok: true };

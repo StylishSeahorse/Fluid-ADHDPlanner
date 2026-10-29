@@ -6,6 +6,7 @@ import { ActionLogPanel } from '@/components/action-log';
 import { DockLink, SidebarLink, type NavItem } from '@/components/nav';
 import { InstallAppButton } from '@/components/pwa/install-button';
 import {
+  BoardIcon,
   CalendarIcon,
   DotsIcon,
   LeafIcon,
@@ -42,11 +43,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const todayBadge = dueToday + pendingPlans;
 
   /*
-    Five destinations, one per question someone actually arrives with:
+    Six destinations, one per question someone actually arrives with:
 
       Today    — what am I doing now?
       Week     — which day does this belong to? (board, calendar and agenda are
                  lenses on this one page, not three separate places)
+      Boards   — where is each piece of work in its project?
       Tasks    — what exists at all?
       Review   — how did that go?
       Settings — how should this behave?
@@ -59,6 +61,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const nav: NavItem[] = [
     { href: '/today', label: 'Today', icon: <TodayIcon />, ...(todayBadge ? { badge: todayBadge } : {}) },
     { href: '/week', label: 'Week', icon: <CalendarIcon /> },
+    // Project boards: where work lives. Week asks which *day*; Boards asks
+    // where it is in its workflow. Same cards, two questions.
+    { href: '/boards', label: 'Boards', icon: <BoardIcon /> },
     // The route stays /projects — /tasks already redirects here, and this is
     // only a label change, not a URL one.
     { href: '/projects', label: 'Tasks', icon: <TasksIcon /> },
@@ -66,10 +71,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: '/settings', label: 'Settings', icon: <SettingsIcon /> },
   ];
 
-  // The dock is the phone's whole navigation. It carries the four screens the
-  // day actually moves through and drops Settings, which nobody reaches for
+  // The dock is the phone's whole navigation. It carries the screens the day
+  // actually moves through and drops Settings, which nobody reaches for
   // one-handed mid-transition.
-  const dock = [nav[0]!, nav[1]!, nav[2]!, nav[3]!];
+  const dock = [nav[0]!, nav[1]!, nav[2]!, nav[3]!, nav[4]!];
   const handle = user.email.split('@')[0] ?? 'you';
 
   return (

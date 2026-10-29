@@ -28,6 +28,8 @@ export {
   SyncDirection,
   SyncOutcome,
   TaskStatus,
+  ColumnCategory,
+  WorkspaceRole,
 } from '../generated/client/index.js';
 
 export type {
@@ -56,4 +58,14 @@ export type {
   AuditLog,
   PushSubscription,
   NotificationDelivery,
+  Workspace,
+  WorkspaceMember,
+  Board,
+  BoardColumn,
+  Label,
+  TaskLabel,
+  ChecklistItem,
+  Comment,
+  ActivityEvent,
+  TrashedCard,
 } from '../generated/client/index.js';

@@ -213,3 +213,30 @@ export const PhoneIcon = ({ className }: IconProps) => (
     <path d="M11 18h2" />
   </svg>
 );
+
+export const ChatIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <path d="M5 18.5V6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v7a2.5 2.5 0 0 1-2.5 2.5H9z" />
+  </svg>
+);
+
+export const LockIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" />
+  </svg>
+);
+
+export const SubtaskIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <path d="M6 4v9a3 3 0 0 0 3 3h9" />
+    <path d="M15 13l3 3-3 3" />
+  </svg>
+);
+
+export const SearchIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4 4" />
+  </svg>
+);

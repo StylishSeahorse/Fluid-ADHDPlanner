@@ -12,6 +12,7 @@ import { boardRouter } from './board';
 import { areaRouter } from './area';
 import { objectiveRouter } from './objective';
 import { notificationRouter } from './notification';
+import { kanbanRouter } from './kanban';
 
 export const appRouter = router({
   task: taskRouter,
@@ -26,6 +27,7 @@ export const appRouter = router({
   area: areaRouter,
   objective: objectiveRouter,
   notification: notificationRouter,
+  kanban: kanbanRouter,
 });
 
 export type AppRouter = typeof appRouter;

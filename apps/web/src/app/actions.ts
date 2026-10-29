@@ -167,6 +167,8 @@ export async function completeTask(formData: FormData): Promise<void> {
   revalidatePath('/today');
   revalidatePath('/week');
   revalidatePath('/focus');
+  // Completion moves the card to its board's Done column.
+  revalidatePath('/boards', 'layout');
 }
 
 /** The `FormData` shape, for buttons that submit fields rather than an id. */
@@ -188,6 +190,7 @@ export async function uncompleteTask(taskId: string): Promise<{ error?: string }
   revalidatePath('/today');
   revalidatePath('/week');
   revalidatePath('/focus');
+  revalidatePath('/boards', 'layout');
   return {};
 }
 
@@ -865,6 +868,7 @@ export async function commitTaskToDay(input: {
 
   revalidatePath('/week');
   revalidatePath('/today');
+  revalidatePath('/boards', 'layout');
   return {};
 }
 
@@ -1152,4 +1156,212 @@ export async function updateTimeZone(formData: FormData): Promise<void> {
 
   await prisma.user.update({ where: { id: user.id }, data: { timeZone: zone } });
   revalidatePath('/', 'layout');
+}
+
+// ---------------------------------------------------------------------------
+// Project boards
+// ---------------------------------------------------------------------------
+
+/**
+ * Anything on a board can change what Today, the week and the task list show
+ * — a card moved to Done is finished everywhere — so board writes refresh all
+ * of them, not just the board.
+ */
+function revalidateBoards(): void {
+  revalidatePath('/boards', 'layout');
+  revalidatePath('/today');
+  revalidatePath('/week');
+  revalidatePath('/projects');
+}
+
+const field = (formData: FormData, name: string) => String(formData.get(name) ?? '').trim();
+
+async function boardMutation(
+  run: (caller: Awaited<ReturnType<typeof getCaller>>) => Promise<unknown>,
+  fallback: string,
+): Promise<{ error?: string }> {
+  const caller = await getCaller();
+  try {
+    await run(caller);
+  } catch (error) {
+    return { error: messageFrom(error, fallback) };
+  }
+  revalidateBoards();
+  return {};
+}
+
+export async function createBoard(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const caller = await getCaller();
+  let boardId: string;
+  try {
+    ({ id: boardId } = await caller.kanban.createBoard({ name: field(formData, 'name') }));
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not create that board.') };
+  }
+  revalidateBoards();
+  redirect(`/boards/${boardId}`);
+}
+
+export async function renameBoard(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.renameBoard({ id: field(formData, 'id'), name: field(formData, 'name') }),
+    'Could not rename the board.',
+  );
+}
+
+export async function setBoardArchived(formData: FormData) {
+  return boardMutation(
+    (caller) =>
+      caller.kanban.setBoardArchived({ id: field(formData, 'id'), archived: field(formData, 'archived') === 'true' }),
+    'Could not change the board.',
+  );
+}
+
+export async function addColumn(formData: FormData) {
+  const category = field(formData, 'category');
+  return boardMutation(
+    (caller) =>
+      caller.kanban.addColumn({
+        boardId: field(formData, 'boardId'),
+        name: field(formData, 'name'),
+        category: category ? (category as 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'DONE') : null,
+      }),
+    'Could not add that column.',
+  );
+}
+
+export async function updateColumn(formData: FormData) {
+  const category = field(formData, 'category');
+  const wip = field(formData, 'wipLimit');
+  return boardMutation(
+    (caller) =>
+      caller.kanban.updateColumn({
+        id: field(formData, 'id'),
+        ...(formData.has('name') ? { name: field(formData, 'name') } : {}),
+        ...(formData.has('category')
+          ? { category: category ? (category as 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'DONE') : null }
+          : {}),
+        ...(formData.has('wipLimit') ? { wipLimit: wip ? Number(wip) : null } : {}),
+      }),
+    'Could not change that column.',
+  );
+}
+
+export async function shiftColumn(formData: FormData) {
+  return boardMutation(
+    (caller) =>
+      caller.kanban.shiftColumn({
+        id: field(formData, 'id'),
+        direction: field(formData, 'direction') === 'left' ? 'left' : 'right',
+      }),
+    'Could not move that column.',
+  );
+}
+
+export async function deleteColumn(formData: FormData) {
+  const moveTo = field(formData, 'moveCardsTo');
+  return boardMutation(
+    (caller) => caller.kanban.deleteColumn({ id: field(formData, 'id'), ...(moveTo ? { moveCardsTo: moveTo } : {}) }),
+    'Could not delete that column.',
+  );
+}
+
+export async function createCard(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.createCard({ columnId: field(formData, 'columnId'), title: field(formData, 'title') }),
+    'Could not add that card.',
+  );
+}
+
+/** Drag-and-drop and the "Move to…" dialog both land here. */
+export async function moveBoardCard(input: {
+  taskId: string;
+  columnId: string;
+  beforeId?: string | null;
+  afterId?: string | null;
+}): Promise<{ error?: string }> {
+  return boardMutation((caller) => caller.kanban.moveCard(input), 'Could not move that card.');
+}
+
+export async function updateCard(formData: FormData) {
+  const has = (name: string) => formData.has(name);
+  return boardMutation(
+    (caller) =>
+      caller.kanban.updateCard({
+        id: field(formData, 'id'),
+        ...(has('title') ? { title: field(formData, 'title') } : {}),
+        ...(has('notes') ? { notes: field(formData, 'notes') || null } : {}),
+        ...(has('priority') ? { priority: field(formData, 'priority') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' } : {}),
+        ...(has('estimateMinutes') ? { estimateMinutes: Number(field(formData, 'estimateMinutes')) } : {}),
+        // The calendar date as typed; the router resolves it in the user's zone.
+        ...(has('deadline') ? { deadlineDay: field(formData, 'deadline') || null } : {}),
+      }),
+    'Could not save that card.',
+  );
+}
+
+export async function trashBoardCard(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.trashCard({ id: field(formData, 'id') }), 'Could not delete that card.');
+}
+
+export async function restoreBoardCard(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.restoreCard({ id: field(formData, 'id') }),
+    'Could not restore that card.',
+  );
+}
+
+export async function createLabel(formData: FormData) {
+  return boardMutation(async (caller) => {
+    const label = await caller.kanban.createLabel({
+      name: field(formData, 'name'),
+      color: (field(formData, 'color') || 'indigo') as 'indigo',
+    });
+    const taskId = field(formData, 'taskId');
+    if (taskId) await caller.kanban.toggleLabel({ taskId, labelId: label.id });
+  }, 'Could not create that label.');
+}
+
+export async function deleteLabel(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.deleteLabel({ id: field(formData, 'id') }), 'Could not delete that label.');
+}
+
+export async function toggleCardLabel(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.toggleLabel({ taskId: field(formData, 'taskId'), labelId: field(formData, 'labelId') }),
+    'Could not change that label.',
+  );
+}
+
+export async function addChecklistItem(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.addChecklistItem({ taskId: field(formData, 'taskId'), text: field(formData, 'text') }),
+    'Could not add that item.',
+  );
+}
+
+export async function toggleChecklistItem(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.toggleChecklistItem({ id: field(formData, 'id') }), 'Could not tick that.');
+}
+
+export async function deleteChecklistItem(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.deleteChecklistItem({ id: field(formData, 'id') }), 'Could not remove that.');
+}
+
+export async function promoteChecklistItem(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.promoteChecklistItem({ id: field(formData, 'id') }),
+    'Could not make that a subtask.',
+  );
+}
+
+export async function addComment(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.addComment({ taskId: field(formData, 'taskId'), body: field(formData, 'body') }),
+    'Could not post that comment.',
+  );
+}
+
+export async function deleteComment(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.deleteComment({ id: field(formData, 'id') }), 'Could not delete that comment.');
 }
