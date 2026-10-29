@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  The service worker's fallback when a screen is opened with no connection and
+  no last-seen copy of it. Deliberately plain HTML with inline styles and no
+  script: a Next.js page here would try to hydrate as whatever URL was asked
+  for, fail without its chunks, and show "Application error" instead.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f7fb" />
+    <title>Offline · Fluid</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: #26262b;
+        background: linear-gradient(#fcfcfe, #f3f3f9);
+        -webkit-font-smoothing: antialiased;
+      }
+      main { max-width: 22rem; text-align: center; }
+      .mark {
+        width: 4rem; height: 4rem; margin: 0 auto 1.5rem;
+        display: grid; place-items: center;
+        border-radius: 1rem;
+        background: linear-gradient(135deg, #6367ef, #4b47dd);
+        box-shadow: 0 6px 18px -8px rgba(75, 71, 221, 0.6);
+      }
+      h1 { margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+      p { margin: 0.6rem 0 0; font-size: 0.9rem; line-height: 1.6; color: #6b6b75; }
+      a {
+        display: inline-block; margin-top: 1.5rem; padding: 0.55rem 1.1rem;
+        border-radius: 0.75rem; background: #5653ea; color: #fff;
+        font-size: 0.875rem; font-weight: 600; text-decoration: none;
+      }
+      a:focus-visible { outline: 2px solid #5653ea; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 9V4.5M12 15v4.5M9 12H4.5M15 12h4.5" />
+          <circle cx="12" cy="3.2" r="1.2" /><circle cx="12" cy="20.8" r="1.2" />
+          <circle cx="3.2" cy="12" r="1.2" /><circle cx="20.8" cy="12" r="1.2" />
+        </svg>
+      </div>
+      <h1>You’re offline</h1>
+      <p>
+        Fluid needs a connection to load this screen. Screens you’ve opened recently still work,
+        and everything you planned is safe — it’ll be here when you’re back.
+      </p>
+      <a href="/today">Try again</a>
+    </main>
+  </body>
+</html>

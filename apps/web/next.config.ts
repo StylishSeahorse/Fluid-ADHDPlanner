@@ -25,6 +25,16 @@ const config: NextConfig = {
   async headers() {
     return [
       {
+        // The service worker must never be served stale: browsers check it
+        // for updates, and an HTTP-cached copy would pin every installed app
+        // to an old version until the cache expired.
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+        ],
+      },
+      {
         source: '/:path*',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -47,6 +57,9 @@ const config: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "connect-src 'self'",
+              // The service worker and the manifest are both same-origin files.
+              "worker-src 'self'",
+              "manifest-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

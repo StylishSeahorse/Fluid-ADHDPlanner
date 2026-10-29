@@ -1,6 +1,7 @@
 // @ts-check
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import globals from 'globals';
 
 /**
  * The one rule that carries real security weight here is `no-restricted-syntax`
@@ -53,6 +54,12 @@ export default tseslint.config(
     // The one place allowed to read process.env.
     files: ['packages/env/src/**/*.ts'],
     rules: { 'no-restricted-syntax': 'off' },
+  },
+  {
+    // Plain JavaScript that runs in the browser's service-worker scope, served
+    // as-is from public/ rather than bundled.
+    files: ['apps/web/public/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
   },
   {
     files: ['**/*.test.ts', '**/*.test.tsx', '**/test/**/*.ts'],

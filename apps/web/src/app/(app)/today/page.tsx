@@ -192,6 +192,34 @@ export default async function TodayPage({
 
   const weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone }).format(dayStart);
 
+  const needsPlanning = isToday && !dayLog?.plannedAt && !dayLog?.shutdownAt;
+
+  // Two lists used to say the same thing in two places — "still not happening"
+  // (moved over and over) and "worth a look" (avoided). One task could appear
+  // in both. They are one question — is this task stuck? — so they are one
+  // section, each task once, with every remedy beside it.
+  const stuck = isToday
+    ? [
+        ...stale.map((task) => ({
+          id: task.id,
+          title: task.title,
+          note: `Moved ${task.rescheduleCount} times — it may not belong in a day at all.`,
+          stale: true,
+        })),
+        ...avoidance
+          .filter((task) => !stale.some((other) => other.id === task.id))
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            note:
+              task.rescheduleCount >= 3
+                ? `Moved ${task.rescheduleCount} times. That usually means too big or too vague — rarely unimportant.`
+                : `Not touched since ${relativeDays(task.lastTouchedAt)}.`,
+            stale: false,
+          })),
+      ]
+    : [];
+
   return (
     <>
       {/* --- Day header: where you are in the week, and the AI lever --------- */}
@@ -242,15 +270,21 @@ export default async function TodayPage({
             </Link>
           ) : null}
 
+          {/*
+            "Find time" runs the scheduler; "Plan today" (below) is the
+            morning ritual. They used to share the word "plan", which left two
+            buttons on one screen promising the same thing. While the ritual is
+            still the next step, this one steps back to an outline.
+          */}
           <LoggedActionButton
             action={rebuildPlan}
             fields={{}}
-            successMessage="Re-planned your schedule."
-            pendingLabel="Planning…"
-            className="btn btn-primary btn-sm gap-1.5 rounded-xl"
+            successMessage="Found time for your work."
+            pendingLabel="Finding time…"
+            className={`btn btn-sm gap-1.5 rounded-xl ${needsPlanning ? 'btn-outline' : 'btn-primary'}`}
           >
             <WandIcon />
-            Plan my day
+            Find time
           </LoggedActionButton>
         </div>
       </header>
@@ -262,7 +296,7 @@ export default async function TodayPage({
         stays put after you have complied is one you learn to scroll past,
         taking everything near it along too.
       */}
-      {isToday && !dayLog?.plannedAt && !dayLog?.shutdownAt ? (
+      {needsPlanning ? (
         <Link
           href="/plan-day"
           className="border-primary/35 bg-primary/6 hover:bg-primary/10 mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-4 py-3.5 transition-colors"
@@ -271,7 +305,7 @@ export default async function TodayPage({
             <WandIcon />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-semibold">Plan today first</span>
+            <span className="block text-sm font-semibold">Plan today</span>
             <span className="text-base-content/60 block text-xs">
               Close off yesterday, choose what today is for, and check it fits. About five minutes.
             </span>
@@ -367,7 +401,7 @@ export default async function TodayPage({
           */}
           <p className="text-base-content/60 mt-1.5 text-xs">
             {atRisk.length > 4 ? `…and ${atRisk.length - 4} more. ` : ''}
-            &ldquo;Plan my day&rdquo; will look for slots.
+            &ldquo;Find time&rdquo; will look for slots.
           </p>
         </div>
       ) : null}
@@ -396,7 +430,7 @@ export default async function TodayPage({
               <div className="px-4 py-10 text-center">
                 <p className="font-medium">Nothing scheduled.</p>
                 <p className="text-base-content/50 mt-1 text-sm">
-                  Add a task below, then press “Plan my day” to let the AI place it.
+                  Add a task below, then press “Find time” to place it around your day.
                 </p>
               </div>
             ) : (
@@ -587,7 +621,7 @@ export default async function TodayPage({
                   ))}
                 </ul>
                 <p className="text-base-content/45 px-4 pb-3 pt-2 text-xs">
-                  “Plan my day” will find room for these around your meetings.
+                  “Find time” will find room for these around your meetings.
                 </p>
               </div>
             ) : null}
@@ -611,70 +645,26 @@ export default async function TodayPage({
         </div>
       </div>
 
-      {/* --- The day has an ending ------------------------------------------ */}
-      {isToday ? (
-        <ShutdownCard
-          day={dayStart.toISOString()}
-          completedCount={doneBlocks.length}
-          focusedMinutes={Math.round(shape.capacity.completedMinutes)}
-          meetingMinutes={Math.round(shape.capacity.meetingMinutes)}
-          loose={loose.map((task) => ({ id: task.id, title: task.title }))}
-          shutdownAt={dayLog?.shutdownAt ?? null}
-          reflection={dayLog?.reflection ?? null}
-          highlights={highlights}
-        />
-      ) : null}
-
+      {/* --- Is anything stuck? -------------------------------------------- */}
       {/*
-        --- Work that keeps being pushed ------------------------------------
         Asked, never done automatically. "You have moved this eight times" is a
         fact worth showing; deciding on someone's behalf that it no longer
         matters is not the tool's call to make.
       */}
-      {isToday && stale.length > 0 ? (
-        <div className="border-base-200 bg-base-100 mt-6 rounded-2xl border px-4 py-3.5">
-          <p className="text-sm font-semibold">Still not happening</p>
-          <ul className="mt-2 space-y-2.5">
-            {stale.map((task) => (
-              <li key={task.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span className="font-medium">{task.title}</span>
-                <span className="text-base-content/55">
-                  moved {task.rescheduleCount} times — it may not belong in a day at all.
-                </span>
-                <LoggedActionButton
-                  action={archiveTask}
-                  fields={{ id: task.id }}
-                  successMessage={`Moved "${task.title}" to the backlog.`}
-                  pendingLabel="Moving…"
-                  className="btn btn-outline btn-xs ml-auto rounded-lg"
-                >
-                  Move to backlog
-                </LoggedActionButton>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* --- Gentle check-in, out of the way -------------------------------- */}
-      {isToday && avoidance.length > 0 ? (
-        <details className="border-base-200 bg-base-100 mt-6 rounded-2xl border shadow-sm">
+      {stuck.length > 0 ? (
+        <details className="border-base-200 bg-base-100 mt-6 rounded-2xl border shadow-sm" open={stuck.length <= 2}>
           <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold">
             Worth a look
             <span className="text-base-content/45 ml-2 font-normal">
-              {avoidance.length} task{avoidance.length === 1 ? '' : 's'} that keep{avoidance.length === 1 ? 's' : ''} moving
+              {stuck.length} task{stuck.length === 1 ? '' : 's'} that keep{stuck.length === 1 ? 's' : ''} slipping
             </span>
           </summary>
-          <div className="divide-base-200 border-base-200 divide-y border-t">
-            {avoidance.map((task) => (
-              <div key={task.id} className="px-4 py-3">
-                <h3 className="text-sm font-semibold">{task.title}</h3>
-                <p className="text-base-content/70 mt-0.5 text-sm">
-                  {task.rescheduleCount >= 3
-                    ? `This has moved ${task.rescheduleCount} times. That usually means it is too big or too vague — rarely that it is unimportant.`
-                    : `This has not been touched since ${relativeDays(task.lastTouchedAt)}.`}
-                </p>
-                <div className="mt-2 flex gap-1.5">
+          <ul className="divide-base-200 border-base-200 divide-y border-t">
+            {stuck.map((task) => (
+              <li key={task.id} className="px-4 py-3">
+                <p className="text-sm font-semibold">{task.title}</p>
+                <p className="text-base-content/65 mt-0.5 text-sm">{task.note}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
                   <LoggedActionButton
                     action={breakdownTask}
                     fields={{ id: task.id, granularity: 'tiny' }}
@@ -685,18 +675,46 @@ export default async function TodayPage({
                     Shrink it
                   </LoggedActionButton>
                   <LoggedActionButton
-                    action={acknowledgeAvoidance}
+                    action={archiveTask}
                     fields={{ id: task.id }}
-                    successMessage={`Left "${task.title}" for now.`}
-                    className="btn btn-ghost btn-xs rounded-lg"
+                    successMessage={`Moved "${task.title}" to the backlog.`}
+                    pendingLabel="Moving…"
+                    className="btn btn-outline btn-xs rounded-lg"
                   >
-                    Leave it for now
+                    Move to backlog
                   </LoggedActionButton>
+                  {!task.stale ? (
+                    <LoggedActionButton
+                      action={acknowledgeAvoidance}
+                      fields={{ id: task.id }}
+                      successMessage={`Left "${task.title}" for now.`}
+                      className="btn btn-ghost btn-xs rounded-lg"
+                    >
+                      Leave it for now
+                    </LoggedActionButton>
+                  ) : null}
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </details>
+      ) : null}
+
+      {/* --- The day has an ending ------------------------------------------ */}
+      {isToday ? (
+        // Anchored, so the evening "wrap up" notification lands right here.
+        <div id="shutdown" className="scroll-mt-20">
+          <ShutdownCard
+            day={dayStart.toISOString()}
+            completedCount={doneBlocks.length}
+            focusedMinutes={Math.round(shape.capacity.completedMinutes)}
+            meetingMinutes={Math.round(shape.capacity.meetingMinutes)}
+            loose={loose.map((task) => ({ id: task.id, title: task.title }))}
+            shutdownAt={dayLog?.shutdownAt ?? null}
+            reflection={dayLog?.reflection ?? null}
+            highlights={highlights}
+          />
+        </div>
       ) : null}
     </>
   );

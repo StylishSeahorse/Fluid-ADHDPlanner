@@ -96,6 +96,10 @@ RUN mkdir -p "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" \
 # traced tree, not at its own root.
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+# Standalone output does not include public/ — and the installable app lives
+# there: the service worker, the icons and the offline page. Without this line
+# the image serves 404s for all three and Android will not offer to install.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
 

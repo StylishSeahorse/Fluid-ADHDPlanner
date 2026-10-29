@@ -72,6 +72,17 @@ const schema = z.object({
    * their own laptop, where "the server" and "their machine" are the same thing.
    */
   CALDAV_ALLOW_LOCALHOST: booleanFlag,
+
+  /**
+   * Contact for push services, sent with every Web Push request (VAPID
+   * `sub`). Must be a `mailto:` or `https:` URL. Defaults to APP_URL when that
+   * is https; push services use it to reach the operator if something misbehaves.
+   * The VAPID key pair itself is generated on first use and kept in the database.
+   */
+  VAPID_SUBJECT: optionalString,
+
+  /** Stop the in-process notification dispatcher, e.g. on a second replica. */
+  NOTIFICATIONS_DISABLED: booleanFlag,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -114,4 +125,6 @@ export const features = {
    * see the note on the variable.
    */
   caldavLocalhost: env.CALDAV_ALLOW_LOCALHOST && env.NODE_ENV !== 'production',
+  /** The server sends push notifications on its own schedule. */
+  notifications: !env.NOTIFICATIONS_DISABLED && env.NODE_ENV !== 'test',
 } as const;

@@ -128,7 +128,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 341 tests
+npm run verify   # lint + typecheck + 366 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -168,6 +168,52 @@ Both print a URL and take a pasted or device code, so no browser is needed
 inside the container. Credentials persist in named volumes across rebuilds.
 Settings shows the real state — installed, signed in, or neither — rather than
 reciting a command regardless of whether it could work.
+
+---
+
+## On your phone
+
+Fluid is an installable app (a PWA) with push notifications. There is no app
+store step: Chrome on Android installs it straight from the site.
+
+**1. Serve it over HTTPS.** Android only installs apps and delivers push to
+secure origins. `localhost` counts as secure on the machine itself, but your
+phone is a different machine, so it needs a real HTTPS address:
+
+- **To keep it** — put the Docker image behind a reverse proxy with a
+  certificate (Caddy does this in two lines) and set `APP_URL` to that address.
+- **To try it** — a tunnel such as `cloudflared tunnel --url http://localhost:3030`
+  or Tailscale Funnel gives you an HTTPS URL in a minute.
+
+**2. Install.** Open the address in Chrome on the phone and sign in. Tap
+**Install** in the top bar (it appears as soon as Chrome says the app is
+installable), or use the Chrome menu ⋮ → *Install app*. Fluid then opens
+full-screen from its own home-screen icon; long-pressing the icon offers
+shortcuts to Today, Plan my day, Focus and adding tasks.
+
+**3. Turn on notifications.** In the installed app go to
+**Settings → Notifications → Turn on**, allow the prompt, then **Send a test**.
+Notifications are per device; turn them on on each phone or laptop you want
+nudged.
+
+What it sends, each one switchable:
+
+| Notification | When |
+|---|---|
+| **Up next** | A few minutes before each scheduled session (0–30, your choice), with a *Start focus* button |
+| **Plan your day** | At the start of your working hours, if the day has not been planned |
+| **Time to wrap up** | At the end of your working hours, if the day had work and has not been closed |
+
+Nothing is sent during your quiet hours, and every reminder follows the time
+zone in **Settings → Your day** (captured from your device when you sign up).
+
+Offline, the app keeps the last copy of Today, Week, Tasks and Review you
+opened, and shows a plain offline screen for anything else. It never caches
+writes, and signing out clears the offline copies.
+
+> **Android battery saving** can delay notifications from any app. If reminders
+> arrive late, set Chrome (or the installed Fluid app) to *Unrestricted* under
+> Android's battery settings.
 
 ---
 
@@ -247,7 +293,8 @@ property that stops a full resync becoming mass data loss.
 ## Status
 
 **Running.** Auth, tasks and projects, the scheduler, all five screens, both
-full-screen flows and the AI calendar agent work end to end. 341 tests.
+full-screen flows, the AI calendar agent, and the installable app with push
+notifications work end to end. 366 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -271,6 +318,9 @@ full-screen flows and the AI calendar agent work end to end. 341 tests.
 - Subscription sign-in (Claude Pro/Max, ChatGPT) via the official `claude` and
   `codex` CLIs — installed in the Docker image itself, so this works the same
   way in the container as on a laptop, using each vendor's own headless login
+- Installable PWA (manifest, service worker, offline screen, home-screen
+  shortcuts) and Web Push: session reminders plus plan/wrap-up prompts, with
+  quiet hours, per-kind switches and per-device management
 
 </details>
 
@@ -281,8 +331,9 @@ full-screen flows and the AI calendar agent work end to end. 341 tests.
   circuit-breaker fields and conflict model are in place; the OAuth flow and the
   actual API requests are not. Blocks stay inside Fluid for now.
 - Microsoft Graph adapter
-- BullMQ worker — no background sync or nudge delivery yet
-- Nudges/notifications, body doubling, Gantt view, task import
+- BullMQ worker — no background calendar sync yet. Notifications are sent by a
+  small dispatcher inside the web process instead (see the maintainer notes)
+- Body doubling, Gantt view, task import
 - Booking links, an AI notetaker, and Slack/Teams delivery of the daily summary
   (it copies to the clipboard instead)
 - AI settings toggles are enforced server-side but not yet editable in the UI
@@ -324,3 +375,18 @@ contact.
   `ENCRYPTION_KEK` and every provider key. Adding a new env var to the app does
   not require touching this list, and that is deliberate — assume it should
   stay out unless you have a specific reason the CLI needs it.
+- **Notifications are dispatched from the web process**, once a minute, started
+  in `apps/web/src/instrumentation.ts`. There is no worker container to run.
+  Several replicas are safe: each notification is claimed in
+  `notification_deliveries` under a unique key before it is sent, so only one
+  replica sends it. Set `NOTIFICATIONS_DISABLED=1` on the extra replicas to
+  save them the work. The VAPID key pair is generated on first use and
+  stored, envelope-encrypted, in `server_keys` — do not delete that row, or
+  every device's subscription stops working.
+- **Push endpoints are allowlisted** (`server/services/push-endpoint.ts`). A
+  subscription is a URL the browser gives us and the server then POSTs to, so
+  accepting any URL would be SSRF. Only the push services real browsers use
+  (FCM, Mozilla, Windows, Apple) are accepted.
+- **`public/offline.html` is plain HTML on purpose.** A Next.js page cached as
+  the offline fallback tries to hydrate as whatever URL was requested, fails
+  without its chunks, and shows "Application error".

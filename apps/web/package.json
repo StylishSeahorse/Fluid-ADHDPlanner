@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "dotenv -e ../../.env -- next dev -p 3030",
-    "build": "dotenv -e ../../.env -- next build",
-    "start": "dotenv -e ../../.env -- next start -p 3030"
+    "build": "dotenv -e ../../.env -v NODE_ENV=production -- next build",
+    "start": "dotenv -e ../../.env -v NODE_ENV=production -- next start -p 3030"
   },
   "dependencies": {
     "@fluid/ai": "*",
@@ -15,6 +15,7 @@
     "@fluid/crypto": "*",
     "@fluid/db": "*",
     "@fluid/env": "*",
+    "@fluid/net": "*",
     "@tailwindcss/postcss": "^4.3.3",
     "@trpc/server": "^11.0.0",
     "daisyui": "^5.7.16",
@@ -23,12 +24,13 @@
     "react-dom": "^19.0.0",
     "server-only": "^0.0.1",
     "tailwindcss": "^4.3.3",
-    "zod": "^3.25.0",
-    "@fluid/net": "*"
+    "web-push": "^3.6.7",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "dotenv-cli": "^8.0.0"
   }
 }

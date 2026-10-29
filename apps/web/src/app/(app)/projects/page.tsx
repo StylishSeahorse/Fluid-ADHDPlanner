@@ -12,7 +12,7 @@ import { AreaPicker } from '@/components/area-picker';
 import { BucketPicker } from '@/components/bucket-picker';
 import { BUCKET_LABELS, BUCKET_ORDER, type Bucket } from '@/components/buckets';
 import { ConfirmButton } from '@/components/confirm-button';
-import { CheckIcon } from '@/components/icons';
+import { CheckIcon, ChevronRightIcon } from '@/components/icons';
 import { NewTaskForm } from '@/components/new-task-form';
 import { TaskEditor } from '@/components/task-editor';
 import { TaskTimer } from '@/components/task-timer';
@@ -70,6 +70,17 @@ export default async function ProjectsPage() {
         subtitle={`${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${formatDuration(remaining)} of work left`}
       />
 
+      {/*
+        Capture comes first: getting a thought out of your head is the most
+        common reason to open this screen, and it should not sit below a row
+        of project cards. `items-start` stops the shorter form stretching to
+        the braindump's height and leaving a block of empty white.
+      */}
+      <section id="capture" className="mb-6 grid scroll-mt-20 items-start gap-3 lg:grid-cols-2">
+        <NewTaskForm projects={projectOptions} />
+        <Braindump />
+      </section>
+
       {projects.length > 0 ? (
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => {
@@ -114,11 +125,6 @@ export default async function ProjectsPage() {
           })}
         </div>
       ) : null}
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <NewTaskForm projects={projectOptions} />
-        <Braindump />
-      </div>
 
       <SectionTitle>Open tasks</SectionTitle>
 
@@ -210,25 +216,18 @@ export default async function ProjectsPage() {
                     </ul>
                   ) : null}
 
+                  {/*
+                    Two actions up front — start it, or change it — and the rest
+                    one tap away. Eight buttons on every row turned the list
+                    into a wall of controls, which is the opposite of what a
+                    "what exists at all?" screen should feel like.
+                  */}
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <TaskTimer
                       taskId={task.id}
                       taskTitle={task.title}
                       startedAt={task.timerStartedAt}
                     />
-                    <BucketPicker taskId={task.id} current={bucketOf(task)} />
-                    <AreaPicker taskId={task.id} current={task.areaId} areas={areas} />
-                    {task.subtasks.length === 0 ? (
-                      <LoggedActionButton
-                        action={breakdownTask}
-                        fields={{ id: task.id, granularity: 'tiny' }}
-                        successMessage={`Broke "${task.title}" into smaller steps.`}
-                        pendingLabel="Thinking…"
-                        className="btn btn-outline btn-xs rounded-lg"
-                      >
-                        Break it down
-                      </LoggedActionButton>
-                    ) : null}
 
                     <TaskEditor
                       task={{
@@ -245,26 +244,47 @@ export default async function ProjectsPage() {
                       projects={projectOptions}
                     />
 
-                    <LoggedActionButton
-                      action={deferTask}
-                      fields={{ id: task.id, days: '1' }}
-                      successMessage={`Moved "${task.title}" to tomorrow.`}
-                      pendingLabel="Deferring…"
-                      className="btn btn-ghost btn-xs rounded-lg"
-                    >
-                      Defer a day
-                    </LoggedActionButton>
+                    <details className="group basis-full sm:basis-auto">
+                      <summary className="btn btn-ghost btn-xs text-base-content/60 list-none rounded-lg [&::-webkit-details-marker]:hidden">
+                        More
+                        <ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" />
+                      </summary>
+                      <div className="bg-base-200/60 mt-2 flex flex-wrap items-center gap-2 rounded-xl p-2">
+                        <BucketPicker taskId={task.id} current={bucketOf(task)} />
+                        <AreaPicker taskId={task.id} current={task.areaId} areas={areas} />
+                        {task.subtasks.length === 0 ? (
+                          <LoggedActionButton
+                            action={breakdownTask}
+                            fields={{ id: task.id, granularity: 'tiny' }}
+                            successMessage={`Broke "${task.title}" into smaller steps.`}
+                            pendingLabel="Thinking…"
+                            className="btn btn-outline btn-xs rounded-lg"
+                          >
+                            Break it down
+                          </LoggedActionButton>
+                        ) : null}
+                        <LoggedActionButton
+                          action={deferTask}
+                          fields={{ id: task.id, days: '1' }}
+                          successMessage={`Moved "${task.title}" to tomorrow.`}
+                          pendingLabel="Deferring…"
+                          className="btn btn-ghost btn-xs rounded-lg"
+                        >
+                          Defer a day
+                        </LoggedActionButton>
 
-                    {/* Delete is the one genuinely irreversible action here. */}
-                    <ConfirmButton
-                      action={deleteTask}
-                      fields={{ id: task.id }}
-                      label="Delete"
-                      confirmLabel="Really delete?"
-                      successMessage={`Deleted "${task.title}".`}
-                      className="btn btn-ghost btn-xs text-error rounded-lg"
-                      confirmClassName="btn btn-error btn-xs rounded-lg"
-                    />
+                        {/* Delete is the one genuinely irreversible action here. */}
+                        <ConfirmButton
+                          action={deleteTask}
+                          fields={{ id: task.id }}
+                          label="Delete"
+                          confirmLabel="Really delete?"
+                          successMessage={`Deleted "${task.title}".`}
+                          className="btn btn-ghost btn-xs text-error rounded-lg"
+                          confirmClassName="btn btn-error btn-xs rounded-lg"
+                        />
+                      </div>
+                    </details>
                   </div>
                 </div>
               </div>

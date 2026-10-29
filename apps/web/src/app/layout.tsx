@@ -1,18 +1,30 @@
 import type { Metadata, Viewport } from 'next';
+import { env } from '@fluid/env';
 import { prisma } from '@fluid/db';
+import { ServiceWorkerRegistrar } from '@/components/pwa/pwa';
 import { getCurrentUser } from '@/server/auth/session';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Fluid',
+  title: { default: 'Fluid', template: '%s · Fluid' },
   description: 'A calendar that negotiates with you.',
+  applicationName: 'Fluid',
+  // The manifest itself comes from app/manifest.ts; these cover iOS, which
+  // still reads its own tags for home-screen installs.
+  appleWebApp: { capable: true, title: 'Fluid', statusBarStyle: 'default' },
+  icons: { apple: '/icons/apple-touch-icon.png' },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  // Respects the theme in the browser chrome on mobile.
-  themeColor: '#fbfaf8',
+  // Lets the installed app draw under the Android gesture bar; the dock pads
+  // itself with the safe-area inset so nothing ends up beneath it.
+  viewportFit: 'cover',
+  // Matches the page wash, so the status bar of the installed app is part of
+  // the screen rather than a stripe across the top of it.
+  themeColor: '#f6f7fb',
 };
 
 /**
@@ -36,7 +48,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       data-dyslexia={preferences?.dyslexiaFont ? 'on' : undefined}
       data-text={preferences?.largeText ? 'large' : undefined}
     >
-      <body className="min-h-dvh bg-base-200 antialiased">{children}</body>
+      <body className="min-h-dvh bg-base-200 antialiased">
+        <ServiceWorkerRegistrar dev={env.NODE_ENV === 'development'} />
+        {children}
+      </body>
     </html>
   );
 }

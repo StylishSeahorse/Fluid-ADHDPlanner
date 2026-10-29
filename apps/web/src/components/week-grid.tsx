@@ -306,7 +306,11 @@ export function WeekGrid({
             .map((hour) => (
               <span
                 key={hour}
-                className="text-base-content/35 absolute right-2.5 -translate-y-1/2 text-[0.65rem] font-medium"
+                // Labels centre on their gridline — except the first, whose
+                // gridline is the card's top edge, where centring clips it.
+                className={`text-base-content/35 absolute right-2.5 text-[0.65rem] font-medium ${
+                  hour === startHour ? 'translate-y-1' : '-translate-y-1/2'
+                }`}
                 style={{ top: `${((hour - startHour) / totalHours) * 100}%` }}
               >
                 {`${((hour + 11) % 12) + 1} ${hour < 12 || hour === 24 ? 'AM' : 'PM'}`}

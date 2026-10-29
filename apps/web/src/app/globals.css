@@ -131,6 +131,32 @@
   font-size: 118%;
 }
 
+/* ---------------------------------------------------------------------------
+ * Softer neutral outline buttons.
+ *
+ * daisyUI draws an un-coloured outline button in the text colour — a black
+ * ring that shouts louder than the primary action beside it. Secondary actions
+ * get a quiet border instead; coloured outlines and the high-contrast theme
+ * are untouched.
+ * ------------------------------------------------------------------------- */
+[data-theme='fluid'] .btn-outline {
+  --btn-border: var(--btn-color, var(--color-base-300));
+}
+
+/* The activity log's resting spot: above the phone dock (and the gesture bar
+   of an installed app), in the corner on desktop. */
+.log-anchor {
+  right: 1rem;
+  bottom: calc(4rem + env(safe-area-inset-bottom) + 0.75rem);
+}
+
+@media (min-width: 1024px) {
+  .log-anchor {
+    right: 1.25rem;
+    bottom: 1.25rem;
+  }
+}
+
 /* Keyboard focus must be obvious, not merely present. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--color-primary);

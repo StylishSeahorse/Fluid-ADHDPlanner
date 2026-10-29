@@ -13,10 +13,27 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@fluid/db';
 import { fakeVerify, hashPassword, validatePasswordLength, verifyPassword } from '@fluid/crypto';
 import { z } from 'zod';
+import { assertValidTimeZone } from '@fluid/core';
 import { getCaller } from '@/server/caller';
 import { createSession, destroySession, getCurrentUser } from '@/server/auth/session';
 
 export type ActionState = { error?: string } | undefined;
+
+/**
+ * The browser's IANA zone, as the sign-in form reports it — or null when it is
+ * missing or not a zone this runtime knows. Every reminder and every "today"
+ * is computed in this zone, so a wrong guess is worse than no guess.
+ */
+function browserTimeZone(formData: FormData): string | null {
+  const value = String(formData.get('timeZone') ?? '').trim();
+  if (!value || value.length > 64) return null;
+  try {
+    assertValidTimeZone(value);
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 const credentials = z.object({
   email: z.string().trim().toLowerCase().email('That does not look like an email address.'),
@@ -48,7 +65,9 @@ export async function signUp(_state: ActionState, formData: FormData): Promise<A
     data: {
       email: parsed.data.email,
       passwordHash: await hashPassword(parsed.data.password),
-      timeZone: 'UTC',
+      // Working hours are wall-clock times in this zone. Defaulting to UTC
+      // would put a phone in Sydney's 09:00 reminder at 20:00.
+      timeZone: browserTimeZone(formData) ?? 'UTC',
       preferences: { create: {} },
       aiSetting: { create: {} },
       workingHours: {
@@ -94,6 +113,15 @@ export async function signIn(_state: ActionState, formData: FormData): Promise<A
   }
 
   await prisma.auditLog.create({ data: { userId: user.id, action: 'user.signin' } });
+
+  // Accounts created before the zone was captured are sitting on the UTC
+  // default. Adopt the device's zone once; anyone who has picked a zone in
+  // Settings keeps it.
+  const zone = browserTimeZone(formData);
+  if (user.timeZone === 'UTC' && zone && zone !== 'UTC') {
+    await prisma.user.update({ where: { id: user.id }, data: { timeZone: zone } });
+  }
+
   await createSession(user.id);
   redirect('/today');
 }
@@ -1015,4 +1043,113 @@ export async function updateFocusRhythm(formData: FormData): Promise<void> {
 
   revalidatePath('/settings');
   revalidatePath('/focus');
+}
+
+// ---------------------------------------------------------------------------
+// Push notifications
+// ---------------------------------------------------------------------------
+
+export interface PushSubscriptionInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
+/** Register this browser or installed app for push. */
+export async function savePushSubscription(
+  input: PushSubscriptionInput,
+): Promise<{ error?: string }> {
+  const caller = await getCaller();
+
+  try {
+    await caller.notification.subscribe(input);
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not turn on notifications for this device.') };
+  }
+
+  revalidatePath('/settings');
+  return {};
+}
+
+export async function removePushSubscription(endpoint: string): Promise<{ error?: string }> {
+  const caller = await getCaller();
+
+  try {
+    await caller.notification.unsubscribe({ endpoint });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not turn off notifications for this device.') };
+  }
+
+  revalidatePath('/settings');
+  return {};
+}
+
+export async function removePushDevice(id: string): Promise<{ error?: string }> {
+  const caller = await getCaller();
+
+  try {
+    await caller.notification.removeDevice({ id });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not remove that device.') };
+  }
+
+  revalidatePath('/settings');
+  return {};
+}
+
+export async function sendTestNotification(): Promise<{ error?: string; sent?: number }> {
+  const caller = await getCaller();
+
+  try {
+    const result = await caller.notification.test();
+    if (result.sent === 0) {
+      return {
+        error:
+          result.removed > 0
+            ? 'That device had stopped accepting notifications, so it was removed. Turn them on again.'
+            : 'The push service did not accept it. Check the device is online and try again.',
+      };
+    }
+    return { sent: result.sent };
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not send a test notification.') };
+  }
+}
+
+export async function updateNotificationSettings(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const caller = await getCaller();
+  const time = (name: string) => {
+    const value = String(formData.get(name) ?? '').trim();
+    return value === '' ? null : value;
+  };
+
+  try {
+    await caller.notification.updatePreferences({
+      enabled: formData.get('enabled') === 'on',
+      blockReminders: formData.get('blockReminders') === 'on',
+      dayPrompts: formData.get('dayPrompts') === 'on',
+      leadMinutes: Math.min(60, Math.max(0, Math.round(Number(formData.get('leadMinutes') ?? 5)) || 0)),
+      quietHoursStart: time('quietHoursStart'),
+      quietHoursEnd: time('quietHoursEnd'),
+    });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not save notification settings.') };
+  }
+
+  revalidatePath('/settings');
+  return {};
+}
+
+export async function updateTimeZone(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+
+  const zone = browserTimeZone(formData);
+  if (!zone) return;
+
+  await prisma.user.update({ where: { id: user.id }, data: { timeZone: zone } });
+  revalidatePath('/', 'layout');
 }

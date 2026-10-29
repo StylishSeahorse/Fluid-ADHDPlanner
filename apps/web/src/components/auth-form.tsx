@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import type { ActionState } from '@/app/actions';
 
 interface Props {
@@ -12,9 +12,13 @@ interface Props {
 
 export function AuthForm({ action, submitLabel, autoComplete, passwordHint }: Props) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, undefined);
+  // Read after mount: the server has no idea which zone the device is in.
+  const [timeZone, setTimeZone] = useState('');
+  useEffect(() => setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''), []);
 
   return (
     <form action={formAction} className="space-y-4">
+      <input type="hidden" name="timeZone" value={timeZone} />
       {state?.error ? (
         // role="alert" so it is announced as it appears, not merely rendered.
         <div role="alert" className="alert alert-error text-sm">

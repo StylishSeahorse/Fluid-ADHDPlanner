@@ -4,6 +4,7 @@ import { signOut } from '@/app/actions';
 import { requireUser } from '@/server/auth/session';
 import { ActionLogPanel } from '@/components/action-log';
 import { DockLink, SidebarLink, type NavItem } from '@/components/nav';
+import { InstallAppButton } from '@/components/pwa/install-button';
 import {
   CalendarIcon,
   DotsIcon,
@@ -92,10 +93,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="from-primary to-secondary grid size-7 place-items-center rounded-lg bg-gradient-to-br text-white">
               <LogoMark className="size-4" />
             </span>
-            <span className="text-[0.95rem] tracking-tight">
-              ADHD <span className="font-bold">Planner</span>
-            </span>
+            <span className="text-[1.02rem] font-bold tracking-tight">Fluid</span>
           </Link>
+          {/* Only appears when Chrome has said the app can be installed. */}
+          <div className="ml-auto pr-1">
+            <InstallAppButton className="btn btn-primary btn-soft btn-xs gap-1 rounded-lg" label="Install" />
+          </div>
         </header>
 
         <main id="main" className="mx-auto w-full max-w-7xl grow px-4 pb-28 pt-6 lg:px-10 lg:pb-14 lg:pt-9">
@@ -125,8 +128,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="from-primary to-secondary grid size-10 place-items-center rounded-xl bg-gradient-to-br text-white shadow-sm">
               <LogoMark />
             </span>
-            <span className="text-[1.05rem] tracking-tight">
-              ADHD <span className="font-bold">Planner</span>
+            <span className="leading-tight">
+              <span className="block text-[1.1rem] font-bold tracking-tight">Fluid</span>
+              <span className="text-base-content/45 block text-[0.72rem]">ADHD planner</span>
             </span>
           </Link>
 
@@ -142,6 +146,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             reminding is the moment they are looking at a plan that slipped.
           */}
           <div className="mt-auto">
+            <InstallAppButton className="btn btn-primary btn-soft btn-sm mb-3 w-full gap-1.5 rounded-xl" />
+
             <div className="bg-accent/8 border-accent/15 mb-4 rounded-2xl border p-3.5">
               <div className="text-accent flex items-center gap-2 text-[0.83rem] font-semibold">
                 <LeafIcon />

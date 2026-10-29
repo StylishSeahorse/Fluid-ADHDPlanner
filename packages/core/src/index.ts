@@ -3,3 +3,4 @@ export * from './time/zoned';
 export * from './actions';
 export * from './sync/reconcile';
 export * from './capture/braindump';
+export * from './notifications/due';

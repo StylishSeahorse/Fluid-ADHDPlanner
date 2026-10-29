@@ -192,3 +192,24 @@ export const LogoMark = ({ className }: IconProps) => (
     <circle cx="20.8" cy="12" r="1.2" />
   </svg>
 );
+
+export const DownloadIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" />
+    <path d="M5 19h14" />
+  </svg>
+);
+
+export const BellIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" />
+    <path d="M10 20.5a2 2 0 0 0 4 0" />
+  </svg>
+);
+
+export const PhoneIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <rect x="7" y="3" width="10" height="18" rx="2.5" />
+    <path d="M11 18h2" />
+  </svg>
+);

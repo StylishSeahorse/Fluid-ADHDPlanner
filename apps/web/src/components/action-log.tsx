@@ -173,9 +173,13 @@ export function ActionLogPanel() {
     dragOrigin.current = null;
   };
 
-  const style: React.CSSProperties = position
+  // Until dragged, the resting spot comes from CSS (`.log-anchor`) so it can sit
+  // above the phone dock and in the corner on desktop — an inline style
+  // cannot vary by breakpoint.
+  const style: React.CSSProperties | undefined = position
     ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
-    : { right: '1.25rem', bottom: '1.25rem' };
+    : undefined;
+  const anchor = position ? '' : 'log-anchor';
 
   if (!open) {
     return (
@@ -184,7 +188,7 @@ export function ActionLogPanel() {
         onClick={toggle}
         data-log-panel
         style={style}
-        className="btn btn-circle btn-primary fixed z-40 shadow-lg"
+        className={`btn btn-circle btn-primary fixed z-40 shadow-lg ${anchor}`}
         aria-label={`Activity log${unreadCount > 0 ? ` — ${unreadCount} new` : ''}`}
         title="Activity log"
       >
@@ -202,7 +206,7 @@ export function ActionLogPanel() {
     <div
       data-log-panel
       style={style}
-      className="card bg-base-100 border-base-300 fixed z-40 w-80 max-w-[calc(100vw-2rem)] border shadow-xl"
+      className={`card bg-base-100 border-base-300 fixed z-40 w-80 max-w-[calc(100vw-2rem)] border shadow-xl ${anchor}`}
     >
       <div
         className="border-base-200 flex cursor-grab items-center justify-between border-b px-3 py-2 active:cursor-grabbing"

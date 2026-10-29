@@ -58,6 +58,8 @@ model User {
   aiSetting           AiSetting?
   aiActions           AiAction[]
   auditLogs           AuditLog[]
+  pushSubscriptions   PushSubscription[]
+  notifications       NotificationDelivery[]
 
   @@map("users")
 }
@@ -157,6 +159,15 @@ model UserPreferences {
   nudgesEnabled   Boolean   @default(true)
   quietHoursStart String? // "22:00" local
   quietHoursEnd   String? // "08:00" local
+
+  // --- Push notifications (installed app / browser). `nudgesEnabled` above is
+  // --- the master switch; these choose which kinds are worth a buzz.
+  /// "Up next" a few minutes before each scheduled session.
+  pushBlockReminders  Boolean @default(true)
+  /// The morning "plan your day" and evening "wrap up" prompts.
+  pushDayPrompts      Boolean @default(true)
+  /// How far ahead of a session the reminder arrives.
+  reminderLeadMinutes Int     @default(5)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1227,4 +1238,80 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Push notifications
+// ---------------------------------------------------------------------------
+
+/// One browser or installed app that has agreed to receive Web Push.
+///
+/// A person typically has one per device. The endpoint is the push service's
+/// address for that device and is unique world-wide, so re-subscribing the same
+/// device updates the row rather than adding a second one.
+model PushSubscription {
+  id     String @id @default(cuid())
+  userId String
+
+  endpoint String @unique
+  /// The subscription's public key and auth secret, as the browser gave them.
+  /// They let us encrypt a payload only that device can read; they are not
+  /// credentials for anything else.
+  p256dh   String
+  auth     String
+
+  /// For the settings screen: "Chrome on Android", so a person can tell their
+  /// devices apart. Never used for anything else.
+  userAgent String?
+
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+  /// Consecutive failed deliveries. The push service saying the subscription
+  /// is gone (404/410) deletes the row outright; anything else counts here, and
+  /// a device that keeps failing is dropped rather than retried forever.
+  failureCount  Int       @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// The ledger that makes every notification send exactly once.
+///
+/// A row is claimed *before* anything is sent, under a unique key, so two
+/// server instances ticking at the same moment cannot both buzz someone's
+/// phone. `refKey` is chosen so that a meaningful change produces a new key —
+/// a session moved to a new time includes its new start, and earns a new
+/// reminder.
+model NotificationDelivery {
+  id     String @id @default(cuid())
+  userId String
+
+  /// BLOCK_START, PLAN_DAY, SHUTDOWN, TEST.
+  kind   String
+  refKey String
+
+  sentAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, refKey])
+  @@index([sentAt])
+  @@map("notification_deliveries")
+}
+
+/// Server-wide keys the app generates for itself on first use.
+///
+/// Today this holds the VAPID key pair Web Push needs. It is generated rather
+/// than demanded as configuration because changing it silently invalidates
+/// every device's subscription — so it must be created once and then never
+/// change, which is easier to guarantee in the database than in a `.env` file
+/// someone regenerates. The private half is envelope-encrypted under the KEK.
+model ServerKey {
+  id        String   @id
+  value     String
+  createdAt DateTime @default(now())
+
+  @@map("server_keys")
 }

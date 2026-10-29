@@ -54,4 +54,6 @@ export type {
   AiSetting,
   AiAction,
   AuditLog,
+  PushSubscription,
+  NotificationDelivery,
 } from '../generated/client/index.js';

@@ -11,6 +11,7 @@ import { dayRouter } from './day';
 import { boardRouter } from './board';
 import { areaRouter } from './area';
 import { objectiveRouter } from './objective';
+import { notificationRouter } from './notification';
 
 export const appRouter = router({
   task: taskRouter,
@@ -24,6 +25,7 @@ export const appRouter = router({
   board: boardRouter,
   area: areaRouter,
   objective: objectiveRouter,
+  notification: notificationRouter,
 });
 
 export type AppRouter = typeof appRouter;
