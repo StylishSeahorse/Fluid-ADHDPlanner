@@ -206,6 +206,10 @@ The full reasoning — nine decisions, including calendar-sync ownership, AI
 autonomy gating, and the capacity ledger — is in
 **[docs/architecture.md](docs/architecture.md)**.
 
+Where Fluid goes next — permanent Kanban boards, workspaces and teams on top of
+this engine, researched against Sunsama, Motion, Trello and Nextcloud Deck — is
+specified in **[docs/blueprint/](docs/blueprint/README.md)**.
+
 ---
 
 ## Verifying the guarantees
