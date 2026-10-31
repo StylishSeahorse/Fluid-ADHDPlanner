@@ -8,23 +8,28 @@ per its own README and code [F1–F6]. This session did not re-run its test suit
 
 ## 21. MVP scope and phased roadmap
 
-> **Progress (29 October 2026).** Phase 0 is done: decisions are recorded in
-> [docs/decisions/0001](../decisions/0001-phase-0-and-1.md), and the baseline
-> suite is green. **Phase 1 is in place as a working slice:**
-> - personal workspaces
-> - project boards with custom columns (category, WIP limit, reorder, delete with destination)
-> - cards with labels, a checklist (promotable to subtasks), comments and activity history
-> - drag-and-drop plus an accessible "Move to…" dialog, within and across boards
-> - completion independent of columns
-> - plan-for-a-day from any card
-> - 30-day trash with restore
-> - board filters and cross-board search with the §12.6 grammar
+> **Progress (31 October 2026).**
 >
-> 396 unit tests pass, and an end-to-end browser run covers the full card
-> lifecycle. **Still to do in Phase 1:** attachments, Table view, templates,
-> real-time sync between tabs, REST v1, saved views, and row-level security
-> (planned with Phase 5). The PWA and push notifications from Phase 4 shipped
-> early.
+> - **Phase 0** is done: decisions are in [docs/decisions/0001](../decisions/0001-phase-0-and-1.md).
+> - **Phase 1** is in place as a working slice: workspaces, project boards with
+>   custom columns, cards with labels, checklist, comments and history,
+>   drag-and-drop plus "Move to…", completion independent of columns, 30-day
+>   trash, and search.
+> - **Phase 2** is in place, recorded in [docs/decisions/0002](../decisions/0002-phase-2-calendar-sync.md):
+>   - a Google Calendar adapter and sign-in, and one sync engine for Google and CalDAV
+>   - recurring meetings expanded into busy time
+>   - edits and deletions made in the calendar app adopted
+>   - Google push notifications
+>   - a BullMQ worker with a safety poll and channel renewal
+>
+>   It is tested against a scripted Google API and the real database, but
+>   not yet against a live Google account.
+>
+> **Still open:**
+> - Phase 1 leftovers: attachments, Table view, templates, real-time updates, REST v1, saved views
+> - Phase 2 leftovers: Microsoft 365, a side calendar on the board, the "estimate assumed" flag, both timers in Focus
+>
+> 443 unit tests pass.
 
 ### 21.1 Why the phase order differs from the brief
 

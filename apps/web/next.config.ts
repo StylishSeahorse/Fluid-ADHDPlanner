@@ -17,7 +17,9 @@ const config: NextConfig = {
     '@fluid/net',
   ],
   // Native/binary deps must not be bundled — they're required at runtime.
-  serverExternalPackages: ['@prisma/client', '@node-rs/argon2'],
+  // BullMQ loads its Lua scripts from files next to its own source at runtime,
+  // so it must be required from node_modules rather than bundled.
+  serverExternalPackages: ['@prisma/client', '@node-rs/argon2', 'bullmq', 'ioredis'],
   experimental: {
     // Server Actions receive user input; keep the body bound small.
     serverActions: { bodySizeLimit: '1mb' },

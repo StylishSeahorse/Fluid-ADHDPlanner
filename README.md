@@ -129,7 +129,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 396 tests
+npm run verify   # lint + typecheck + 443 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -218,6 +218,41 @@ writes, and signing out clears the offline copies.
 
 ---
 
+## Connecting Google Calendar
+
+Self-hosting means bringing your own Google OAuth client. It is free and takes
+about ten minutes:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a
+   project and enable the **Google Calendar API**.
+2. Under **APIs & Services → OAuth consent screen**, set up an app (External is
+   fine for personal use) and add the scopes
+   `…/auth/calendar.calendarlist.readonly` and `…/auth/calendar.events`.
+   While the app is in *Testing*, add your own Google address as a test user.
+3. Under **Credentials → Create credentials → OAuth client ID**, choose *Web
+   application* and add the redirect URI `<APP_URL>/api/calendar/google/callback`
+   — for example `https://fluid.example.com/api/calendar/google/callback`.
+4. Put the client ID and secret in `.env` as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`, restart, and use **Settings → Calendars → Connect
+   Google Calendar**.
+
+Optional: set `GOOGLE_WEBHOOK_URL` to
+`https://<your-domain>/api/calendar/google/webhook` and changes made in Google
+reach Fluid within seconds. Without it — or on localhost — Fluid checks every
+10 minutes. Settings says which one you have.
+
+What syncs, and which way:
+
+| | |
+|---|---|
+| Meetings in calendars you show in Google | Busy time the scheduler works around. Recurring series included; meetings you declined and events marked *free* are not busy |
+| Accepted Fluid blocks | Written to one calendar (your primary, changeable in Settings), without Google's own pop-up reminders — Fluid sends its own |
+| You move a Fluid block in Google | Fluid keeps your time and pins the block so the scheduler leaves it alone |
+| You delete a Fluid block in Google | That session is removed in Fluid and not put back |
+| Google revokes access | Syncing pauses with the reason in Settings; nothing is deleted. Reconnect to resume |
+
+---
+
 ## How it is built
 
 ```
@@ -294,8 +329,9 @@ property that stops a full resync becoming mass data loss.
 ## Status
 
 **Running.** Auth, tasks and projects, the scheduler, all five screens, both
-full-screen flows, project boards, the AI calendar agent, and the installable
-app with push notifications work end to end. 396 tests.
+full-screen flows, project boards, Google Calendar and CalDAV sync with a
+background worker, the AI calendar agent, and the installable app with push
+notifications work end to end. 443 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -324,6 +360,12 @@ app with push notifications work end to end. 396 tests.
   trash with restore, and a search grammar shared by every filter box
   (`label:client due:week -status:done`). A card is the same task row Today
   and Week show — completing it anywhere moves it to Done
+- Calendar sync with Google Calendar (OAuth, incremental sync tokens, push
+  notifications, idempotent writes) and any CalDAV server, through one engine:
+  meetings — recurring series included — become busy time; accepted blocks
+  appear in your calendar; moving a block there pins it here; deleting it there
+  removes the session. A background worker (BullMQ on the bundled Redis) runs
+  syncs, a 10-minute safety poll and push-channel renewal
 - Installable PWA (manifest, service worker, offline screen, home-screen
   shortcuts) and Web Push: session reminders plus plan/wrap-up prompts, with
   quiet hours, per-kind switches and per-device management
@@ -333,12 +375,13 @@ app with push notifications work end to end. 396 tests.
 <details>
 <summary><b>What does not</b></summary>
 
-- **Google Calendar HTTP calls.** The interface, contract suite, outbox table,
-  circuit-breaker fields and conflict model are in place; the OAuth flow and the
-  actual API requests are not. Blocks stay inside Fluid for now.
-- Microsoft Graph adapter
-- BullMQ worker — no background calendar sync yet. Notifications are sent by a
-  small dispatcher inside the web process instead (see the maintainer notes)
+- **Google sync has not run against a live Google account.** It is tested
+  against a scripted Google Calendar API (the full adapter contract plus
+  Google's own edge cases) and an end-to-end run through the real database,
+  and its error path has talked to Google's real endpoints — but no OAuth
+  client was available to sign in for real. Expect small surprises on first
+  contact (see docs/decisions/0002)
+- Microsoft 365 / Outlook calendars
 - Body doubling, Gantt view, task import
 - On boards: attachments, a table view, board templates, live updates between
   open tabs, and sharing a workspace with other people
@@ -383,6 +426,17 @@ contact.
   `ENCRYPTION_KEK` and every provider key. Adding a new env var to the app does
   not require touching this list, and that is deliberate — assume it should
   stay out unless you have a specific reason the CLI needs it.
+- **Background jobs run in the web process** (`server/jobs/calendar-jobs.ts`,
+  started from `instrumentation-node.ts`) on BullMQ over the compose file's
+  Redis. BullMQ gives each job to one worker, so replicas are safe;
+  `WORKER_DISABLED=1` keeps one lean. If Redis is down, a requested sync runs
+  inline rather than being lost. `bullmq` and `ioredis` are in
+  `serverExternalPackages` because BullMQ loads Lua scripts from its own files.
+- **Recurring events are expanded when read, never when stored.** Every
+  reader of meetings goes through `server/services/external-events.ts`, which
+  expands series with `@fluid/core`'s `expandRecurrence` in the event's own
+  time zone. Do not query the `events` table directly for busy time — a series
+  stored as one row only covers its first occurrence.
 - **Notifications are dispatched from the web process**, once a minute, started
   in `apps/web/src/instrumentation.ts`. There is no worker container to run.
   Several replicas are safe: each notification is claimed in

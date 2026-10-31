@@ -22,6 +22,7 @@ import {
 } from '@fluid/core';
 import { prisma, type PlanChangeKind, type Prisma } from '@fluid/db';
 import { applyAiOrderingHint, consentFrom } from './ai-scheduler';
+import { externalEvents } from './external-events';
 
 /** How far ahead to plan. Two weeks is enough to show a deadline runway. */
 const HORIZON_DAYS = 14;
@@ -66,16 +67,8 @@ export async function buildPlan(userId: string, trigger: string): Promise<PlanRe
       prisma.workingHours.findMany({ where: { userId } }),
       prisma.energyWindow.findMany({ where: { userId } }),
       prisma.protectedTime.findMany({ where: { userId } }),
-      prisma.event.findMany({
-        where: {
-          calendar: { userId, isSelected: true },
-          deletedAt: null,
-          status: { not: 'CANCELLED' },
-          transparency: 'BUSY',
-          origin: 'EXTERNAL',
-          endsAt: { gt: now },
-        },
-      }),
+      // Recurring meetings expanded across the whole planning horizon.
+      externalEvents(userId, { from: now, to: new Date(now.getTime() + (HORIZON_DAYS + 1) * 86_400_000) }),
       prisma.scheduledBlock.findMany({
         where: {
           task: { userId },

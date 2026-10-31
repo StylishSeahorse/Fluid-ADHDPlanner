@@ -5,12 +5,8 @@ import { prisma } from '@fluid/db';
 import { CalendarError } from '@fluid/calendar';
 import { UnsafeEndpointError } from '@fluid/net';
 import { protectedProcedure, router } from '../trpc';
-import {
-  connectCalDav,
-  disconnectCalDav,
-  setWriteTarget,
-  syncAllConnections,
-} from '../services/caldav';
+import { connectCalDav } from '../services/caldav';
+import { disconnectCalendar, setWriteTarget, syncAllConnections } from '../services/calendar-sync';
 
 /**
  * Turn a failure into something a person can act on.
@@ -117,7 +113,7 @@ export const calendarRouter = router({
   disconnect: protectedProcedure
     .input(z.object({ connectionId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await disconnectCalDav(ctx.user.id, input.connectionId);
+      await disconnectCalendar(ctx.user.id, input.connectionId);
       await prisma.auditLog.create({
         data: { userId: ctx.user.id, action: 'calendar.disconnected', metadata: {} },
       });

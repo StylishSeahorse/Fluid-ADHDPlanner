@@ -7,3 +7,4 @@ export * from './notifications/due';
 export * from './board/positions';
 export * from './board/query';
 export * from './board/columns';
+export * from './calendar/recurrence';

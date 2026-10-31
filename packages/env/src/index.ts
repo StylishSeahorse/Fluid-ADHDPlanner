@@ -83,6 +83,13 @@ const schema = z.object({
 
   /** Stop the in-process notification dispatcher, e.g. on a second replica. */
   NOTIFICATIONS_DISABLED: booleanFlag,
+
+  /**
+   * Stop this process running background jobs (calendar sync, push-channel
+   * renewal). Jobs are safe to run on several replicas at once — BullMQ hands
+   * each to one worker — so this is for keeping a replica lean, not for safety.
+   */
+  WORKER_DISABLED: booleanFlag,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -127,4 +134,6 @@ export const features = {
   caldavLocalhost: env.CALDAV_ALLOW_LOCALHOST && env.NODE_ENV !== 'production',
   /** The server sends push notifications on its own schedule. */
   notifications: !env.NOTIFICATIONS_DISABLED && env.NODE_ENV !== 'test',
+  /** This process runs the background job worker. */
+  worker: !env.WORKER_DISABLED && env.NODE_ENV !== 'test',
 } as const;

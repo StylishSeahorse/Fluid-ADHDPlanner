@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@fluid/db';
 import { protectedProcedure, router } from '../trpc';
 import { confirmAiAction, reflow, rejectAiAction, revertAiAction } from '../services/calendar-agent';
+import { requestPushForUser } from '../jobs/calendar-jobs';
 
 export const agentRouter = router({
   /** Let the AI rearrange the calendar, within the user's autonomy setting. */
@@ -16,7 +17,11 @@ export const agentRouter = router({
         })
         .default({ trigger: 'manual' }),
     )
-    .mutation(async ({ ctx, input }) => reflow(ctx.user.id, input.trigger)),
+    .mutation(async ({ ctx, input }) => {
+      const result = await reflow(ctx.user.id, input.trigger);
+      await requestPushForUser(ctx.user.id, 'ai-reflow');
+      return result;
+    }),
 
   /** The audit trail: everything done, proposed, or refused. */
   activity: protectedProcedure
@@ -31,11 +36,17 @@ export const agentRouter = router({
 
   revert: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
-    .mutation(async ({ ctx, input }) => revertAiAction(ctx.user.id, input.id)),
+    .mutation(async ({ ctx, input }) => {
+      await revertAiAction(ctx.user.id, input.id);
+      await requestPushForUser(ctx.user.id, 'ai-revert');
+    }),
 
   confirm: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
-    .mutation(async ({ ctx, input }) => confirmAiAction(ctx.user.id, input.id)),
+    .mutation(async ({ ctx, input }) => {
+      await confirmAiAction(ctx.user.id, input.id);
+      await requestPushForUser(ctx.user.id, 'ai-confirm');
+    }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))

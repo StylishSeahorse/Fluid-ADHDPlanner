@@ -15,6 +15,7 @@ import {
 } from '@fluid/core';
 import { localDate, resolveLocalDay } from '../local-date';
 import { protectedProcedure, router } from '../trpc';
+import { externalEvents } from '../services/external-events';
 
 /**
  * The shape of a day, and the two rituals that bracket it.
@@ -112,18 +113,10 @@ export async function dayShape(userId: string, day: Date, timeZone: string): Pro
         task: { select: { area: { select: { countsTowardCapacity: true } } } },
       },
     }),
-    prisma.event.findMany({
-      where: {
-        calendar: { userId, isSelected: true },
-        origin: 'EXTERNAL',
-        deletedAt: null,
-        status: { not: 'CANCELLED' },
-        transparency: 'BUSY',
-        startsAt: { lt: dayEnd },
-        endsAt: { gt: dayStart },
-      },
-      select: { startsAt: true, endsAt: true },
-    }),
+    // Meetings, with recurring series expanded into this day's occurrences.
+    externalEvents(userId, { from: dayStart, to: dayEnd }).then((events) =>
+      events.map((event) => ({ startsAt: event.startsAt, endsAt: event.endsAt })),
+    ),
     prisma.userPreferences.findUnique({ where: { userId } }),
   ]);
 
@@ -210,18 +203,9 @@ export async function weekShape(
         task: { select: { area: { select: { countsTowardCapacity: true } } } },
       },
     }),
-    prisma.event.findMany({
-      where: {
-        calendar: { userId, isSelected: true },
-        origin: 'EXTERNAL',
-        deletedAt: null,
-        status: { not: 'CANCELLED' },
-        transparency: 'BUSY',
-        startsAt: { lt: rangeEnd },
-        endsAt: { gt: rangeStart },
-      },
-      select: { startsAt: true, endsAt: true },
-    }),
+    externalEvents(userId, { from: rangeStart, to: rangeEnd }).then((events) =>
+      events.map((event) => ({ startsAt: event.startsAt, endsAt: event.endsAt })),
+    ),
     prisma.userPreferences.findUnique({ where: { userId } }),
   ]);
 
@@ -496,19 +480,9 @@ export const dayRouter = router({
           orderBy: [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
           take: 40,
         }),
-        prisma.event.findMany({
-          where: {
-            calendar: { userId: ctx.user.id, isSelected: true },
-            origin: 'EXTERNAL',
-            deletedAt: null,
-            status: { not: 'CANCELLED' },
-            transparency: 'BUSY',
-            startsAt: { lt: dayEnd },
-            endsAt: { gt: day },
-          },
-          select: { id: true, title: true, startsAt: true, endsAt: true },
-          orderBy: { startsAt: 'asc' },
-        }),
+        externalEvents(ctx.user.id, { from: day, to: dayEnd }).then((events) =>
+          events.map((event) => ({ id: event.id, title: event.title, startsAt: event.startsAt, endsAt: event.endsAt })),
+        ),
         dayShape(ctx.user.id, day, timeZone),
         prisma.dayLog.findUnique({
           where: { userId_day: { userId: ctx.user.id, day } },

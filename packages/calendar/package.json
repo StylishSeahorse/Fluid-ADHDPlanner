@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts",
-    "./adapters/caldav": "./src/adapters/caldav/index.ts"
+    "./adapters/caldav": "./src/adapters/caldav/index.ts",
+    "./adapters/google": "./src/adapters/google/index.ts"
   },
   "dependencies": {
     "@fluid/core": "*",

@@ -31,7 +31,8 @@ const AUTONOMY_OPTIONS = [
   },
 ] as const;
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ calendar?: string }> }) {
+  const { calendar: calendarFlash } = await searchParams;
   const user = await requireUser();
   const caller = await getCaller();
 
@@ -134,6 +135,8 @@ export default async function SettingsPage() {
           connections={calendars.connections}
           undeliveredWrites={calendars.undeliveredWrites}
           timeZone={user.timeZone}
+          google={{ configured: features.googleCalendar, push: features.googlePush }}
+          flash={calendarFlash?.slice(0, 300)}
         />
       </section>
 

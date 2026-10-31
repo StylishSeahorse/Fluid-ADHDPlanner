@@ -5,6 +5,8 @@ import { prisma } from '@fluid/db';
 import { minutesBetween } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
 import { acceptPlan, buildPlan, rejectPlan } from '../services/planning';
+import { externalEvents } from '../services/external-events';
+import { requestPushForUser } from '../jobs/calendar-jobs';
 
 export const planRouter = router({
   /** Re-plan. `trigger` becomes the "because…" in the diff the user reads. */
@@ -32,6 +34,8 @@ export const planRouter = router({
     .input(z.object({ planVersionId: z.string().cuid(), auto: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       await acceptPlan(ctx.user.id, input.planVersionId, input.auto);
+      // Accepted blocks belong on the real calendar; get them there soon.
+      await requestPushForUser(ctx.user.id, 'plan-accepted');
     }),
 
   reject: protectedProcedure
@@ -81,17 +85,9 @@ export const planRouter = router({
           },
           orderBy: { startsAt: 'asc' },
         }),
-        prisma.event.findMany({
-          where: {
-            calendar: { userId: ctx.user.id, isSelected: true },
-            origin: 'EXTERNAL',
-            deletedAt: null,
-            status: { not: 'CANCELLED' },
-            startsAt: { lt: input.to },
-            endsAt: { gt: input.from },
-          },
-          orderBy: { startsAt: 'asc' },
-        }),
+        // Every meeting in the range — busy or not, since this is for display —
+        // with recurring series expanded into their occurrences.
+        externalEvents(ctx.user.id, { from: input.from, to: input.to }, { busyOnly: false }),
       ]);
 
       return { blocks, events };
@@ -143,6 +139,8 @@ export const planRouter = router({
           message: 'That block could not be moved — it may still be awaiting your OK.',
         });
       }
+
+      await requestPushForUser(ctx.user.id, 'block-moved');
     }),
 
   /**

@@ -70,21 +70,43 @@ const PRESETS = [
   },
 ] as const;
 
+const PROVIDER_NAMES: Record<string, string> = {
+  GOOGLE: 'Google Calendar',
+  CALDAV: 'CalDAV',
+  MICROSOFT: 'Microsoft 365',
+};
+
 export function CalendarConnections({
   connections,
   undeliveredWrites,
   timeZone,
+  google,
+  flash,
 }: {
   connections: ConnectionSummary[];
   undeliveredWrites: number;
   /** The user's zone. Timestamps are formatted in it, not the runtime's. */
   timeZone: string;
+  /** Whether this server has Google OAuth set up, and can receive Google's pushes. */
+  google: { configured: boolean; push: boolean };
+  /** The outcome of a Google sign-in, carried back in the URL. */
+  flash?: string | undefined;
 }) {
+  const hasGoogle = connections.some((connection) => connection.provider === 'GOOGLE' && connection.status !== 'DISCONNECTED');
+
   return (
     <div className="space-y-4">
+      {flash ? (
+        <div role="status" className="alert alert-info alert-soft text-sm">
+          <span>{flash}</span>
+        </div>
+      ) : null}
+
       {connections.map((connection) => (
-        <ConnectionCard key={connection.id} connection={connection} timeZone={timeZone} />
+        <ConnectionCard key={connection.id} connection={connection} timeZone={timeZone} googlePush={google.push} />
       ))}
+
+      <GoogleCard configured={google.configured} connected={hasGoogle} />
 
       {undeliveredWrites > 0 ? (
         <div role="alert" className="alert alert-warning alert-soft text-sm">
@@ -100,14 +122,40 @@ export function CalendarConnections({
   );
 }
 
+function GoogleCard({ configured, connected }: { configured: boolean; connected: boolean }) {
+  return (
+    <div className="card bg-base-100 border-base-200 border shadow-sm">
+      <div className="card-body flex-row flex-wrap items-center gap-4">
+        <div className="min-w-0 grow basis-64">
+          <h3 className="font-medium">{connected ? 'Connect another Google account' : 'Google Calendar'}</h3>
+          <p className="text-base-content/60 text-sm">
+            {configured
+              ? 'Sign in with Google. Meetings shrink your day; Fluid’s blocks appear in your Google Calendar, and moving one there moves it here.'
+              : 'This server is not set up for Google yet. Whoever runs it adds a Google OAuth client (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET) — the README explains how.'}
+          </p>
+        </div>
+        {configured ? (
+          // A plain link, not a fetch: the browser has to leave for Google.
+          <a href="/api/calendar/google/start" className="btn btn-primary btn-sm shrink-0 rounded-xl">
+            Connect Google Calendar
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ConnectionCard({
   connection,
   timeZone,
+  googlePush,
 }: {
   connection: ConnectionSummary;
   timeZone: string;
+  googlePush: boolean;
 }) {
   const halted = connection.status === 'NEEDS_ATTENTION';
+  const instant = connection.provider === 'GOOGLE' && googlePush;
 
   return (
     <div className="card bg-base-100 border-base-200 border shadow-sm">
@@ -116,10 +164,16 @@ function ConnectionCard({
           <div className="min-w-0">
             <div className="font-medium">{connection.account}</div>
             <p className="text-base-content/50 text-xs">
-              {connection.provider} ·{' '}
+              {PROVIDER_NAMES[connection.provider] ?? connection.provider} ·{' '}
               {connection.lastSyncAt
                 ? `last synced ${formatDateTime(connection.lastSyncAt, timeZone)}`
-                : 'not synced yet'}
+                : 'first sync running'}
+              {/* Said plainly, so nobody waits for an update that comes on a timer. */}
+              {connection.status === 'ACTIVE'
+                ? instant
+                  ? ' · changes arrive within seconds'
+                  : ' · checks for changes every 10 minutes'
+                : ''}
             </p>
           </div>
 
@@ -240,9 +294,9 @@ function ConnectForm({ hasAny }: { hasAny: boolean }) {
     <form action={action} className="card bg-base-100 border-base-200 border shadow-sm">
       <div className="card-body gap-4">
         <div>
-          <h3 className="font-medium">{hasAny ? 'Connect another calendar' : 'Connect a calendar'}</h3>
+          <h3 className="font-medium">{hasAny ? 'Connect a CalDAV calendar' : 'Or connect a CalDAV calendar'}</h3>
           <p className="text-base-content/60 text-sm">
-            Any CalDAV server — Fastmail, iCloud, Nextcloud, Radicale, Zimbra. Your events become
+            iCloud, Fastmail, Nextcloud, Radicale, Zimbra — any CalDAV server. Your events become
             busy time the scheduler works around, and scheduled blocks appear in your real calendar.
           </p>
         </div>

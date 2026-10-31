@@ -62,6 +62,12 @@ export interface RemoteCalendar {
   canWrite: boolean;
   /** The provider's primary calendar, a sensible default write target. */
   isPrimary: boolean;
+  /**
+   * Whether the user shows this calendar in the provider's own app. Used as
+   * the default for "counts as busy" — someone who hid their colleague's
+   * calendar in Google does not want it blocking their day here either.
+   */
+  selected?: boolean;
 }
 
 export interface CalendarRef {

@@ -25,6 +25,7 @@ import {
 } from '@fluid/core';
 import { prisma, type AiActionKind, type AiActionStatus } from '@fluid/db';
 import { applyAiOrderingHint, consentFrom } from './ai-scheduler';
+import { externalEvents } from './external-events';
 
 export interface ReflowResult {
   batchId: string;
@@ -69,7 +70,7 @@ export async function reflow(userId: string, trigger: string): Promise<ReflowRes
     }),
   ]);
 
-  const [user, tasks, workingHours, energyWindows, protectedTimes, externalEvents, blocks] =
+  const [user, tasks, workingHours, energyWindows, protectedTimes, external, blocks] =
     await Promise.all([
       prisma.user.findUniqueOrThrow({
         where: { id: userId },
@@ -82,16 +83,7 @@ export async function reflow(userId: string, trigger: string): Promise<ReflowRes
       prisma.workingHours.findMany({ where: { userId } }),
       prisma.energyWindow.findMany({ where: { userId } }),
       prisma.protectedTime.findMany({ where: { userId } }),
-      prisma.event.findMany({
-        where: {
-          calendar: { userId, isSelected: true },
-          origin: 'EXTERNAL',
-          deletedAt: null,
-          status: { not: 'CANCELLED' },
-          transparency: 'BUSY',
-          endsAt: { gt: now },
-        },
-      }),
+      externalEvents(userId, { from: now, to: new Date(now.getTime() + 8 * 86_400_000) }),
       prisma.scheduledBlock.findMany({
         where: { task: { userId }, state: 'ACCEPTED', endsAt: { gt: now } },
         include: { task: { select: { title: true } } },
@@ -108,7 +100,7 @@ export async function reflow(userId: string, trigger: string): Promise<ReflowRes
     scope,
     workingHours,
     protectedTimes,
-    external: externalEvents.map((event) => ({ start: event.startsAt, end: event.endsAt })),
+    external: external.map((event) => ({ start: event.startsAt, end: event.endsAt })),
     ownedBlocks: blocks.map((block) => ({
       blockId: block.id,
       taskId: block.taskId,
