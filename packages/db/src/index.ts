@@ -30,6 +30,9 @@ export {
   TaskStatus,
   ColumnCategory,
   WorkspaceRole,
+  DeadlineKind,
+  PreferredWindow,
+  SchedulingMode,
 } from '../generated/client/index.js';
 
 export type {

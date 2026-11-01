@@ -241,6 +241,8 @@ export default async function ProjectsPage() {
                         estimateMinutes: task.estimateMinutes,
                         deadline: task.deadline,
                         isSplittable: task.isSplittable,
+                        deadlineKind: task.deadlineKind,
+                        preferredWindow: task.preferredWindow,
                       }}
                       projects={projectOptions}
                     />

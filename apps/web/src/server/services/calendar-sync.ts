@@ -24,6 +24,7 @@
  * Provider differences live in `adapterFor` and nowhere else.
  */
 import 'server-only';
+import { overlapsOtherSession } from './block-overlap';
 import {
   reconcile,
   type LocalEvent as ReconcilableEvent,
@@ -307,6 +308,12 @@ export async function syncConnection(connectionId: string): Promise<SyncSummary>
     // Open tabs re-render when meetings or blocks actually changed.
     if (summary.created + summary.updated + summary.deleted + summary.adopted > 0) {
       await notifyCalendarChange(connection.userId);
+      // Meetings moved or appeared: the plan may need to follow. Debounced in
+      // the queue, so a burst of syncs is one replan. Lazy import: the job
+      // module imports the calendar worker, which imports this file.
+      void import('../jobs/replan-jobs')
+        .then(({ requestReplan }) => requestReplan(connection.userId, 'calendar_synced'))
+        .catch((error) => console.warn('[sync] could not queue a replan:', error));
     }
   } catch (error) {
     summary.error = await recordSyncFailure(connection.id, startedAt, error);
@@ -483,10 +490,12 @@ async function adoptOwnBlock(tx: Prisma.TransactionClient, eventId: string, remo
   await tx.event.update({ where: { id: local.id }, data: { ...(remote.etag ? { etag: remote.etag } : {}) } });
 
   if (local.scheduledBlock) {
+    const overlapAck = await overlapsOtherSession(tx, local.scheduledBlock.id, remote.startsAt, remote.endsAt);
     await tx.scheduledBlock.update({
       where: { id: local.scheduledBlock.id },
       // Pinned: a time the person chose by hand is not the scheduler's to undo.
-      data: { startsAt: remote.startsAt, endsAt: remote.endsAt, isPinned: true },
+      // Acknowledged if it now overlaps another session: they put it there.
+      data: { startsAt: remote.startsAt, endsAt: remote.endsAt, isPinned: true, ...(overlapAck ? { overlapAck } : {}) },
     });
   }
 

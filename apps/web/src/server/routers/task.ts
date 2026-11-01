@@ -6,6 +6,7 @@ import { features } from '@fluid/env';
 import { withFallback } from '@fluid/ai';
 import { localDayOfWeek, parseBraindump, startOfLocalDay } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
+import { replanAfter } from '../replanning';
 import { defaultEstimate, estimateFields } from '../services/estimates';
 import { getAiProvider } from '../services/ai-provider';
 import { categoryFor, completeTaskInTx, uncompleteTaskInTx } from '../services/task-lifecycle';
@@ -26,6 +27,8 @@ const taskInput = z.object({
   estimateMinutes: z.number().int().min(5).max(480).optional(),
   deadline: z.coerce.date().optional().nullable(),
   isSplittable: z.boolean().default(true),
+  deadlineKind: z.enum(['SOFT', 'HARD']).default('SOFT'),
+  preferredWindow: z.enum(['MORNING', 'AFTERNOON', 'EVENING']).nullable().optional(),
   timeBucket: z
     .enum(['SOON', 'THIS_MONTH', 'THIS_QUARTER', 'LATER', 'SOMEDAY'])
     .optional()
@@ -73,7 +76,7 @@ export const taskRouter = router({
       });
     }),
 
-  create: protectedProcedure.input(taskInput).mutation(async ({ ctx, input }) => {
+  create: replanAfter('task_changed').input(taskInput).mutation(async ({ ctx, input }) => {
     // The project seeds the area, once, at creation. After that the task owns
     // it — so re-filing a project later never silently reclassifies work that
     // has already been scheduled and counted.
@@ -99,6 +102,8 @@ export const taskRouter = router({
         ...(await estimateFields(ctx.user.id, input.estimateMinutes)),
         deadline: input.deadline ?? null,
         isSplittable: input.isSplittable,
+        deadlineKind: input.deadlineKind,
+        preferredWindow: input.preferredWindow ?? null,
         timeBucket: input.timeBucket ?? null,
         status: 'READY',
       },
@@ -159,7 +164,7 @@ export const taskRouter = router({
     }),
 
   /** Create the tasks the user confirmed, exactly as shown. */
-  commitBraindump: protectedProcedure
+  commitBraindump: replanAfter('task_changed')
     .input(
       z.object({
         items: z
@@ -243,7 +248,7 @@ export const taskRouter = router({
    * life in the backlog, and carrying "moved 8 times" forward would mean it
    * gets flagged again the moment it is picked back up.
    */
-  archive: protectedProcedure
+  archive: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid(), bucket: timeBucket.default('SOMEDAY') }))
     .mutation(async ({ ctx, input }) => {
       const result = await prisma.task.updateMany({
@@ -263,7 +268,7 @@ export const taskRouter = router({
     }),
 
   /** Undo an archive — reversibility is the price of an automated suggestion. */
-  unarchive: protectedProcedure
+  unarchive: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const result = await prisma.task.updateMany({
@@ -313,7 +318,7 @@ export const taskRouter = router({
       };
     }),
 
-  update: protectedProcedure
+  update: replanAfter('task_changed')
     .input(taskInput.partial().extend({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...patch } = input;
@@ -353,7 +358,7 @@ export const taskRouter = router({
       return prisma.task.findUniqueOrThrow({ where: { id } });
     }),
 
-  complete: protectedProcedure
+  complete: replanAfter('task_completed')
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -376,7 +381,7 @@ export const taskRouter = router({
    * bargain is that it has to be genuinely reversible, and reversible means
    * undoing the side effects too, not just flipping the status back.
    */
-  uncomplete: protectedProcedure
+  uncomplete: replanAfter('task_completed')
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -409,7 +414,7 @@ export const taskRouter = router({
     });
   }),
 
-  delete: protectedProcedure
+  delete: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const result = await prisma.task.deleteMany({
@@ -425,7 +430,7 @@ export const taskRouter = router({
    * it is the signal that feeds avoidance detection. Snoozing something four
    * times is information the product should notice and act on gently.
    */
-  defer: protectedProcedure
+  defer: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid(), days: z.number().int().min(1).max(30).default(1) }))
     .mutation(async ({ ctx, input }) => {
       const task = await prisma.task.findFirst({
@@ -456,7 +461,7 @@ export const taskRouter = router({
    * cannot start still gets a first step, even with no API key configured. A
    * generic "spend five minutes on it" is far more useful than an error.
    */
-  breakdown: protectedProcedure
+  breakdown: replanAfter('task_changed')
     .input(
       z.object({
         id: z.string().cuid(),
@@ -562,7 +567,7 @@ export const taskRouter = router({
     }),
 
   /** Record time actually spent, which is what teaches the estimation coach. */
-  logTime: protectedProcedure
+  logTime: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid(), minutes: z.number().int().min(1).max(480) }))
     .mutation(async ({ ctx, input }) => {
       await prisma.task.updateMany({
@@ -604,7 +609,7 @@ export const taskRouter = router({
     }),
 
   /** Stop the timer and credit the real elapsed time — never a flat guess. */
-  stopTimer: protectedProcedure
+  stopTimer: replanAfter('task_changed')
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();

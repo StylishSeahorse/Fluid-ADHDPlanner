@@ -29,12 +29,17 @@ per its own README and code [F1–F6]. This session did not re-run its test suit
 >   calendar on every board, the "estimate assumed" flag, and both timers in
 >   Focus — is in [docs/decisions/0004](../decisions/0004-phase-2-completion.md),
 >   which completes Phase 2.
+> - **Phase 3** is done, recorded in [docs/decisions/0005](../decisions/0005-phase-3-engine-and-modes.md):
+>   - every MVP item
+>   - preemption, hard-deadline repair and overtime proposals
+>   - Manual / Assisted / Hybrid / Automatic modes, with the always-ask list
+>   - golden tests for the worked examples and a 10,000-case property suite
 >
 > **Still open:**
 > - Phase 1: row-level security moves to Phase 5, with sharing
 > - Microsoft 365 / Outlook is out of scope
 >
-> 465 unit tests pass.
+> 501 unit tests pass.
 
 ### 21.1 Why the phase order differs from the brief
 

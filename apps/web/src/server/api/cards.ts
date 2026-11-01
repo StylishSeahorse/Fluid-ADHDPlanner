@@ -19,6 +19,9 @@ export const cardPatch = z
     estimateMinutes: z.number().int().min(5).max(10_080),
     /** The day it is due by, in the owner's time zone. */
     deadline: day.nullable(),
+    /** SOFT (a target) or HARD (a cut-off the scheduler may move other work for). */
+    deadlineKind: z.enum(['SOFT', 'HARD']),
+    preferredWindow: z.enum(['MORNING', 'AFTERNOON', 'EVENING']).nullable(),
   })
   .partial()
   .strict();
@@ -108,6 +111,8 @@ export async function cardDetail(caller: ApiCaller, id: string) {
     estimateMinutes: card.estimateMinutes,
     estimateAssumed: card.estimateAssumed,
     deadline: card.deadline,
+    deadlineKind: card.deadlineKind,
+    preferredWindow: card.preferredWindow,
     plannedFor: card.plannedFor,
     completedAt: card.completedAt,
     createdAt: card.createdAt,

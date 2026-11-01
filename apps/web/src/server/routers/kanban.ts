@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { prisma, type Prisma, type Task, type TaskStatus } from '@fluid/db';
 import { comparePositions, parseCardQuery, parseLocalDay, positionBetween, startOfLocalDay } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
+import { replanAfter } from '../replanning';
 import {
   cardWhere,
   createBoardInTx,
@@ -139,11 +140,15 @@ export const kanbanRouter = router({
         ),
       ]);
 
+      const project = board.projectId
+        ? await prisma.project.findUnique({ where: { id: board.projectId }, select: { importance: true } })
+        : null;
       return {
         id: board.id,
         name: board.name,
         isInbox: board.isInbox,
         archivedAt: board.archivedAt,
+        importance: project?.importance ?? null,
         filtered: Boolean(input.q?.trim()),
         labels,
         trash,
@@ -157,6 +162,7 @@ export const kanbanRouter = router({
             name: column.name,
             category: column.category,
             wipLimit: column.wipLimit,
+            autoSchedule: column.autoSchedule,
             total: cards.length,
             estimateMinutes: cards.reduce((sum, card) => sum + (card.completedAt ? 0 : card.estimateMinutes), 0),
             cards: shown.map(toCard),
@@ -249,7 +255,7 @@ export const kanbanRouter = router({
   }),
 
   /** A new board is a new project with its board — one name, one step — shaped by a template. */
-  createBoard: protectedProcedure
+  createBoard: replanAfter('task_changed')
     .input(z.object({ name: z.string().trim().min(1).max(120), templateId: z.string().max(64).optional() }))
     .mutation(async ({ ctx, input }) => {
       const { workspaceId } = await ensureBoards(ctx.user.id);
@@ -293,6 +299,15 @@ export const kanbanRouter = router({
     await prisma.boardTemplate.deleteMany({ where: { id: input.id, workspaceId } });
   }),
 
+  /** How much the board's project matters, 0–2. Ranks after priority, before deadlines. */
+  setImportance: replanAfter('task_changed')
+    .input(z.object({ boardId: id, importance: z.number().int().min(0).max(2) }))
+    .mutation(async ({ ctx, input }) => {
+      const board = await loadBoard(prisma, ctx.user.id, input.boardId);
+      if (!board.projectId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'The inbox has no project to rank.' });
+      await prisma.project.update({ where: { id: board.projectId }, data: { importance: input.importance } });
+    }),
+
   renameBoard: protectedProcedure
     .input(z.object({ id, name: z.string().trim().min(1).max(120) }))
     .mutation(async ({ ctx, input }) => {
@@ -308,7 +323,7 @@ export const kanbanRouter = router({
    * Archive a board: hidden from the list, its cards out of the scheduler
    * (the project is archived with it). Reversible.
    */
-  setBoardArchived: protectedProcedure
+  setBoardArchived: replanAfter('task_changed')
     .input(z.object({ id, archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await prisma.$transaction(async (tx) => {
@@ -359,13 +374,15 @@ export const kanbanRouter = router({
       });
     }),
 
-  updateColumn: protectedProcedure
+  updateColumn: replanAfter('task_changed')
     .input(
       z.object({
         id,
         name: z.string().trim().min(1).max(80).optional(),
         category: category.optional(),
         wipLimit: z.number().int().min(1).max(999).nullable().optional(),
+        /** Schedule cards in this column automatically: on, off, or null to follow the mode. */
+        autoSchedule: z.boolean().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -378,6 +395,7 @@ export const kanbanRouter = router({
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.category !== undefined ? { category: input.category } : {}),
           ...(input.wipLimit !== undefined ? { wipLimit: input.wipLimit } : {}),
+          ...(input.autoSchedule !== undefined ? { autoSchedule: input.autoSchedule } : {}),
         },
       });
     }),
@@ -404,7 +422,7 @@ export const kanbanRouter = router({
    * Delete a column. Its cards are never deleted with it: they move to the
    * column you name, which is the one question worth asking here.
    */
-  deleteColumn: protectedProcedure
+  deleteColumn: replanAfter('task_changed')
     .input(z.object({ id, moveCardsTo: id.optional() }))
     .mutation(async ({ ctx, input }) => {
       const column = await prisma.boardColumn.findUnique({
@@ -433,7 +451,7 @@ export const kanbanRouter = router({
 
   // --- Cards ----------------------------------------------------------------
 
-  createCard: protectedProcedure
+  createCard: replanAfter('task_changed')
     .input(z.object({ columnId: id, title: z.string().trim().min(1).max(255) }))
     .mutation(async ({ ctx, input }) => {
       const column = await prisma.boardColumn.findUnique({
@@ -481,7 +499,7 @@ export const kanbanRouter = router({
       });
     }),
 
-  moveCard: protectedProcedure
+  moveCard: replanAfter('task_changed')
     .input(z.object({ taskId: id, columnId: id, beforeId: id.nullish(), afterId: id.nullish() }))
     .mutation(async ({ ctx, input }) => {
       await moveCard(ctx.user.id, input, lifecycle(ctx.user.id));
@@ -507,7 +525,7 @@ export const kanbanRouter = router({
         scheduledBlocks: {
           where: { state: { in: ['PROPOSED', 'ACCEPTED'] }, endsAt: { gt: new Date() } },
           orderBy: { startsAt: 'asc' },
-          select: { id: true, startsAt: true, endsAt: true, state: true, isPinned: true },
+          select: { id: true, startsAt: true, endsAt: true, state: true, isPinned: true, explanationText: true },
         },
       },
     });
@@ -528,7 +546,7 @@ export const kanbanRouter = router({
     };
   }),
 
-  updateCard: protectedProcedure
+  updateCard: replanAfter('task_changed')
     .input(
       z.object({
         id,
@@ -548,6 +566,10 @@ export const kanbanRouter = router({
          * does not clear "assumed" — changing it, or this, does.
          */
         confirmEstimate: z.boolean().optional(),
+        deadlineKind: z.enum(['SOFT', 'HARD']).optional(),
+        preferredWindow: z.enum(['MORNING', 'AFTERNOON', 'EVENING']).nullable().optional(),
+        /** On, off, or null to follow the column and the mode. */
+        autoSchedule: z.boolean().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -587,6 +609,9 @@ export const kanbanRouter = router({
             priority: 'priority',
             estimateMinutes: 'estimate',
             deadline: 'deadline',
+            deadlineKind: 'deadline kind',
+            preferredWindow: 'preferred time of day',
+            autoSchedule: 'auto-scheduling',
             earliestStart: 'start date',
           };
           await logActivity(tx, {
@@ -602,11 +627,11 @@ export const kanbanRouter = router({
       });
     }),
 
-  trashCard: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {
+  trashCard: replanAfter('task_changed').input(z.object({ id })).mutation(async ({ ctx, input }) => {
     await trashCard(ctx.user.id, input.id);
   }),
 
-  restoreCard: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {
+  restoreCard: replanAfter('task_changed').input(z.object({ id })).mutation(async ({ ctx, input }) => {
     return restoreCard(ctx.user.id, input.id);
   }),
 
@@ -683,7 +708,7 @@ export const kanbanRouter = router({
   }),
 
   /** It turned out to be real work: make it a subtask with its own estimate. */
-  promoteChecklistItem: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {
+  promoteChecklistItem: replanAfter('task_changed').input(z.object({ id })).mutation(async ({ ctx, input }) => {
     await prisma.$transaction(async (tx) => {
       const item = await tx.checklistItem.findFirst({
         where: { id: input.id, task: { userId: ctx.user.id } },

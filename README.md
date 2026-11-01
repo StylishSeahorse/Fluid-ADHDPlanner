@@ -129,7 +129,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 465 tests
+npm run verify   # lint + typecheck + 501 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -347,7 +347,7 @@ property that stops a full resync becoming mass data loss.
 full-screen flows, project boards (with files, tables, templates, saved views
 and live updates), a REST API, Google Calendar and CalDAV sync with a
 background worker, the AI calendar agent, and the installable app with push
-notifications work end to end. 465 tests.
+notifications work end to end. 501 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -388,6 +388,17 @@ notifications work end to end. 465 tests.
   the estimation coach
 - Focus mode shows both clocks at once: time until your next break, and the
   total time on the task against its estimate
+- Scheduling modes — Manual, Assisted, Hybrid, Automatic. Fluid replans as
+  things change and, depending on the mode, asks or applies small changes with
+  undo. It always asks before overtime, before moving work off the day you
+  chose, or about a missed session you placed yourself
+- "Why here?" on every session; "Schedule my day"; a resolve tray with one-tap
+  fixes. Hard deadlines may move lower-ranked work aside, and can propose
+  overtime — never apply it. Also: a daily work cap, preferred time of day,
+  project importance, a 1–90 day horizon
+- The engine is checked against the spec's worked examples exactly, and
+  against 10,000 random inputs for every hard constraint. The database itself
+  refuses two accepted sessions at once
 - A REST API with personal access tokens (read only or read & write, with
   expiry and revocation) — see [docs/api.md](docs/api.md)
 - Calendar sync with Google Calendar (OAuth, incremental sync tokens, push

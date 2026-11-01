@@ -28,6 +28,8 @@ export interface EditableTask {
   estimateMinutes: number;
   deadline: Date | null;
   isSplittable: boolean;
+  deadlineKind?: 'SOFT' | 'HARD';
+  preferredWindow?: 'MORNING' | 'AFTERNOON' | 'EVENING' | null;
 }
 
 /**
@@ -64,6 +66,8 @@ export function TaskEditor({
         estimateMinutes: Number(formData.get('estimateMinutes') ?? 30),
         deadline: String(formData.get('deadline') ?? ''),
         isSplittable: formData.get('isSplittable') === 'on',
+        deadlineKind: formData.get('deadlineKind') === 'HARD' ? 'HARD' : 'SOFT',
+        preferredWindow: (String(formData.get('preferredWindow') ?? '') || null) as 'MORNING' | 'AFTERNOON' | 'EVENING' | null,
       });
 
       if (result.error) {
@@ -176,6 +180,25 @@ export function TaskEditor({
                   className="input w-full"
                 />
                 <p className="label text-xs">Leave empty for no deadline.</p>
+              </fieldset>
+
+              <fieldset className="fieldset">
+                <legend className="fieldset-legend">The deadline is</legend>
+                <select name="deadlineKind" defaultValue={task.deadlineKind ?? 'SOFT'} className="select w-full">
+                  <option value="SOFT">A target</option>
+                  <option value="HARD">A hard cut-off</option>
+                </select>
+                <p className="label text-xs whitespace-normal">A hard cut-off may move other work aside — never your evening without asking.</p>
+              </fieldset>
+
+              <fieldset className="fieldset">
+                <legend className="fieldset-legend">Best time of day</legend>
+                <select name="preferredWindow" defaultValue={task.preferredWindow ?? ''} className="select w-full">
+                  <option value="">Any time</option>
+                  <option value="MORNING">Morning</option>
+                  <option value="AFTERNOON">Afternoon</option>
+                  <option value="EVENING">Evening</option>
+                </select>
               </fieldset>
             </div>
 

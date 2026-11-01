@@ -212,6 +212,8 @@ export interface TaskEdit {
   /** `datetime-local` string, or empty to clear the deadline. */
   deadline: string;
   isSplittable: boolean;
+  deadlineKind?: 'SOFT' | 'HARD';
+  preferredWindow?: 'MORNING' | 'AFTERNOON' | 'EVENING' | null;
 }
 
 export async function updateTaskDetails(input: TaskEdit): Promise<{ error?: string }> {
@@ -228,6 +230,8 @@ export async function updateTaskDetails(input: TaskEdit): Promise<{ error?: stri
       estimateMinutes: input.estimateMinutes,
       deadline: input.deadline ? new Date(input.deadline) : null,
       isSplittable: input.isSplittable,
+      ...(input.deadlineKind ? { deadlineKind: input.deadlineKind } : {}),
+      ...(input.preferredWindow !== undefined ? { preferredWindow: input.preferredWindow } : {}),
     });
   } catch (error) {
     return { error: messageFrom(error, 'Could not save those changes.') };
@@ -314,28 +318,100 @@ export async function createProject(
 // Planning
 // ---------------------------------------------------------------------------
 
-export async function rebuildPlan(): Promise<void> {
+export async function rebuildPlan(): Promise<{ error?: string; message?: string }> {
   const caller = await getCaller();
-  await caller.plan.build({ trigger: 'manual' });
+  let message: string | undefined;
+  try {
+    const outcome = await caller.plan.build({ trigger: 'manual' });
+    message = outcomeMessage(outcome);
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not plan just now.') };
+  }
   revalidatePath('/today');
   revalidatePath('/week');
+  return { message };
 }
 
-export async function acceptPlanAction(formData: FormData): Promise<void> {
+/** "Schedule my day": every commitment for today, placed in one action. */
+export async function scheduleMyDay(): Promise<{ error?: string; message?: string }> {
   const caller = await getCaller();
-  await caller.plan.accept({
-    planVersionId: String(formData.get('planVersionId')),
-    auto: formData.get('auto') === 'true',
-  });
+  let message: string | undefined;
+  try {
+    message = outcomeMessage(await caller.plan.build({ trigger: 'schedule_day' }));
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not schedule your day just now.') };
+  }
   revalidatePath('/today');
   revalidatePath('/week');
+  return { message };
 }
 
-export async function rejectPlanAction(formData: FormData): Promise<void> {
+function outcomeMessage(outcome: { status: string; summary: string }): string {
+  switch (outcome.status) {
+    case 'applied':
+      return `Done: ${outcome.summary} Undo is on the banner.`;
+    case 'proposed':
+      return 'Here is a plan — have a look and accept it.';
+    case 'unchanged':
+      return 'Your plan already fits. Nothing needed to change.';
+    default:
+      return outcome.summary;
+  }
+}
+
+export async function acceptPlanAction(formData: FormData): Promise<{ error?: string }> {
   const caller = await getCaller();
-  await caller.plan.reject({ planVersionId: String(formData.get('planVersionId')) });
+  try {
+    await caller.plan.accept({ planVersionId: String(formData.get('planVersionId')) });
+  } catch (error) {
+    revalidatePath('/today');
+    return { error: messageFrom(error, 'Could not accept that plan.') };
+  }
   revalidatePath('/today');
   revalidatePath('/week');
+  return {};
+}
+
+export async function rejectPlanAction(formData: FormData): Promise<{ error?: string }> {
+  const caller = await getCaller();
+  try {
+    await caller.plan.reject({ planVersionId: String(formData.get('planVersionId')) });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not dismiss that plan.') };
+  }
+  revalidatePath('/today');
+  revalidatePath('/week');
+  return {};
+}
+
+/** Undo a plan Fluid applied, or one line of it (`changeId`). */
+export async function undoPlanAction(formData: FormData): Promise<{ error?: string }> {
+  const caller = await getCaller();
+  const changeId = String(formData.get('changeId') ?? '');
+  try {
+    await caller.plan.undo({ planVersionId: String(formData.get('planVersionId')), ...(changeId ? { changeId } : {}) });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not undo that.') };
+  }
+  revalidatePath('/today');
+  revalidatePath('/week');
+  return {};
+}
+
+export async function overtimeAction(formData: FormData): Promise<{ error?: string }> {
+  const caller = await getCaller();
+  try {
+    await caller.plan.overtime({
+      planVersionId: String(formData.get('planVersionId')),
+      taskId: String(formData.get('taskId')),
+      approve: formData.get('approve') === 'true',
+    });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not record that.') };
+  }
+  revalidatePath('/today');
+  revalidatePath('/week');
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -1271,6 +1347,7 @@ export async function updateColumn(formData: FormData) {
           ? { category: category ? (category as 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'DONE') : null }
           : {}),
         ...(formData.has('wipLimit') ? { wipLimit: wip ? Number(wip) : null } : {}),
+        ...(formData.has('autoSchedule') ? { autoSchedule: triState(field(formData, 'autoSchedule')) } : {}),
       }),
     'Could not change that column.',
   );
@@ -1323,6 +1400,11 @@ export async function updateCard(formData: FormData) {
         ...(has('priority') ? { priority: field(formData, 'priority') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' } : {}),
         ...(has('estimateMinutes') ? { estimateMinutes: Number(field(formData, 'estimateMinutes')) } : {}),
         ...(formData.get('confirmEstimate') === '1' ? { confirmEstimate: true } : {}),
+        ...(has('deadlineKind') ? { deadlineKind: field(formData, 'deadlineKind') === 'HARD' ? ('HARD' as const) : ('SOFT' as const) } : {}),
+        ...(has('preferredWindow')
+          ? { preferredWindow: (field(formData, 'preferredWindow') || null) as 'MORNING' | 'AFTERNOON' | 'EVENING' | null }
+          : {}),
+        ...(has('autoSchedule') ? { autoSchedule: triState(field(formData, 'autoSchedule')) } : {}),
         // The calendar date as typed; the router resolves it in the user's zone.
         ...(has('deadline') ? { deadlineDay: field(formData, 'deadline') || null } : {}),
       }),
@@ -1475,4 +1557,68 @@ export async function revokeApiTokenAction(formData: FormData) {
   }
   revalidatePath('/settings');
   return {};
+}
+
+/** A one-tap fix from the resolve tray. */
+export async function resolveIssueAction(formData: FormData): Promise<{ error?: string }> {
+  const caller = await getCaller();
+  const kind = field(formData, 'kind');
+  try {
+    if (kind === 'extend-deadline') {
+      await caller.plan.resolve({ kind, taskId: field(formData, 'taskId'), days: Number(field(formData, 'days') || 1) });
+    } else if (kind === 'trim-estimate') {
+      await caller.plan.resolve({ kind, taskId: field(formData, 'taskId'), by: Number(field(formData, 'by')) });
+    } else if (kind === 'let-go-missed') {
+      await caller.plan.resolve({ kind, blockId: field(formData, 'blockId') });
+    } else {
+      return { error: 'Unknown fix.' };
+    }
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not apply that fix.') };
+  }
+  revalidatePath('/today');
+  revalidatePath('/week');
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling settings
+// ---------------------------------------------------------------------------
+
+/** Mode, how much may move without asking, horizon and daily cap (§13.C). */
+export async function updateSchedulingSettings(formData: FormData): Promise<{ error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+  const number = (name: string, min: number, max: number, fallback: number) => {
+    const value = Number(formData.get(name));
+    return Number.isFinite(value) && String(formData.get(name) ?? '').trim() !== '' ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
+  };
+  const modes = ['MANUAL', 'ASSISTED', 'HYBRID', 'AUTOMATIC'] as const;
+  const mode = modes.find((candidate) => candidate === formData.get('schedulingMode')) ?? 'ASSISTED';
+  const capRaw = String(formData.get('maxDailyWorkMinutes') ?? '').trim();
+  const values = {
+    schedulingMode: mode,
+    hybridThreshold: [2, 4, 8].includes(Number(formData.get('hybridThreshold'))) ? Number(formData.get('hybridThreshold')) : 4,
+    horizonDays: number('horizonDays', 1, 90, 14),
+    maxDailyWorkMinutes: capRaw === '' ? null : number('maxDailyWorkMinutes', 30, 1440, 300),
+    maxDailyReshuffles: number('maxDailyReshuffles', 1, 20, 3),
+    autoAcceptSeconds: [0, 30, 120].includes(Number(formData.get('autoAcceptSeconds'))) ? Number(formData.get('autoAcceptSeconds')) : 0,
+  };
+  await prisma.userPreferences.upsert({ where: { userId: user.id }, create: { userId: user.id, ...values }, update: values });
+  revalidatePath('/settings');
+  const { requestReplan } = await import('@/server/jobs/replan-jobs');
+  await requestReplan(user.id, 'settings_changed', { userInitiated: true, delayMs: 0 });
+  return {};
+}
+
+/** "on" / "off" / anything else (inherit) for a nullable boolean setting. */
+function triState(value: string): boolean | null {
+  return value === 'on' ? true : value === 'off' ? false : null;
+}
+
+export async function setProjectImportance(formData: FormData) {
+  return boardMutation(
+    (caller) => caller.kanban.setImportance({ boardId: field(formData, 'boardId'), importance: Number(field(formData, 'importance')) }),
+    'Could not change how much this project matters.',
+  );
 }

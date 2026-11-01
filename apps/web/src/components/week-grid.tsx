@@ -19,6 +19,8 @@ export interface WeekGridBlock {
   endsAt: Date;
   state: string;
   task: { title: string; estimateAssumed?: boolean };
+  /** "Why here?", from the scheduler. Shown on hover. */
+  explanationText?: string | null;
 }
 
 export interface WeekGridEvent {
@@ -412,7 +414,7 @@ export function WeekGrid({
                       draggable ? 'cal-evt-draggable' : ''
                     } ${beingDragged ? 'cal-evt-lifted' : ''}`}
                     style={{ top: `${top}%`, height: `${height}%` }}
-                    title={`${block.task.title} · ${formatTime(liveStart, timeZone)}–${formatTime(liveEnd, timeZone)}${block.task.estimateAssumed ? ' · estimate assumed' : ''}${draggable ? ' · drag to move, or its edges to resize' : ''}`}
+                    title={`${block.task.title} · ${formatTime(liveStart, timeZone)}–${formatTime(liveEnd, timeZone)}${block.task.estimateAssumed ? ' · estimate assumed' : ''}${draggable ? ' · drag to move, or its edges to resize' : ''}${block.explanationText ? `\n\nWhy here? ${block.explanationText}` : ''}`}
                     draggable={draggable}
                     onDragStart={(event) => {
                       if (!draggable) return;

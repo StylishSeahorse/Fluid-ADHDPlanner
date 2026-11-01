@@ -6,6 +6,7 @@
  * phone it takes the screen.
  */
 import { ASSUMED_ESTIMATE_HINT } from '@/components/estimate';
+import { WhyHere } from '@/components/scheduling';
 import Link from 'next/link';
 import {
   addChecklistItem,
@@ -233,6 +234,34 @@ function Body({
                   ))}
                 </select>
               </label>
+              <label className="text-base-content/60 text-xs" title="A hard deadline may move lower-ranked work aside, and can suggest overtime — only ever with your yes.">
+                Deadline is
+                <select name="deadlineKind" defaultValue={card.deadlineKind} className="select select-sm mt-1 w-full">
+                  <option value="SOFT">A target</option>
+                  <option value="HARD">A hard cut-off</option>
+                </select>
+              </label>
+              <label className="text-base-content/60 text-xs">
+                Best time of day
+                <select name="preferredWindow" defaultValue={card.preferredWindow ?? ''} className="select select-sm mt-1 w-full">
+                  <option value="">Any time</option>
+                  <option value="MORNING">Morning</option>
+                  <option value="AFTERNOON">Afternoon</option>
+                  <option value="EVENING">Evening</option>
+                </select>
+              </label>
+              <label className="text-base-content/60 text-xs">
+                Schedule it
+                <select
+                  name="autoSchedule"
+                  defaultValue={card.autoSchedule === true ? 'on' : card.autoSchedule === false ? 'off' : 'inherit'}
+                  className="select select-sm mt-1 w-full"
+                >
+                  <option value="inherit">As the column says</option>
+                  <option value="on">Automatically</option>
+                  <option value="off">Only when planned for a day</option>
+                </select>
+              </label>
               <div className="col-span-full">
                 <button type="submit" className="btn btn-primary btn-xs rounded-lg">
                   Save
@@ -245,13 +274,14 @@ function Body({
                 <p className="text-base-content/60 mb-1 text-xs">Sessions</p>
                 <ul className="space-y-1">
                   {card.scheduledBlocks.map((block) => (
-                    <li key={block.id} className="flex items-center gap-2 text-sm">
+                    <li key={block.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
                       <span className="font-medium">{stamp(block.startsAt, timeZone)}</span>
                       <span className="text-base-content/50">
                         {formatDuration((block.endsAt.getTime() - block.startsAt.getTime()) / 60_000)}
                       </span>
                       {block.state === 'PROPOSED' ? <span className="badge badge-xs badge-soft badge-warning">proposed</span> : null}
                       {block.isPinned ? <span className="badge badge-xs badge-ghost">pinned</span> : null}
+                      <WhyHere text={block.explanationText} className="basis-full" />
                     </li>
                   ))}
                 </ul>

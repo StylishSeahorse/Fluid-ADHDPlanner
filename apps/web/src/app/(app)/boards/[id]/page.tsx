@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { startOfLocalDay } from '@fluid/core';
 import { env } from '@fluid/env';
-import { renameBoard, saveBoardTemplate, setBoardArchived } from '@/app/actions';
+import { renameBoard, saveBoardTemplate, setBoardArchived, setProjectImportance } from '@/app/actions';
 import { LoggedActionButton } from '@/components/action-log';
 import { ActionForm } from '@/components/kanban/action-form';
 import { BoardView, type Destination } from '@/components/kanban/board-view';
@@ -173,6 +173,24 @@ export default async function BoardPage({
                   </label>
                   <button type="submit" className="btn btn-primary btn-xs rounded-lg">
                     Rename
+                  </button>
+                </ActionForm>
+              ) : null}
+
+              {board.importance !== null ? (
+                <ActionForm action={setProjectImportance} reset={false} success="Saved. Replanning." className="border-base-200 space-y-2 border-t pt-3">
+                  <input type="hidden" name="boardId" value={board.id} />
+                  <label className="block text-xs font-medium">
+                    How much this project matters
+                    <select name="importance" defaultValue={String(board.importance)} className="select select-sm mt-1 w-full">
+                      <option value="2">More than most</option>
+                      <option value="1">As much as the rest</option>
+                      <option value="0">Less than most</option>
+                    </select>
+                  </label>
+                  <p className="text-base-content/50 text-[0.68rem]">Breaks ties after priority, before deadlines.</p>
+                  <button type="submit" className="btn btn-ghost btn-xs rounded-lg">
+                    Save
                   </button>
                 </ActionForm>
               ) : null}

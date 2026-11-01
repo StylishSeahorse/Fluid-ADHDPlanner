@@ -2,13 +2,12 @@ import { ASSUMED_ESTIMATE_HINT, Estimate } from '@/components/estimate';
 import Link from 'next/link';
 import { expandLabeledRoutines, fromLocal, startOfLocalDay, toLocal } from '@fluid/core';
 import {
-  acceptPlanAction,
   acknowledgeAvoidance,
   breakdownTask,
   completeTask,
   deferTask,
   rebuildPlan,
-  rejectPlanAction,
+  scheduleMyDay,
   uncompleteTask,
   uncompleteTaskAction,
 } from '@/app/actions';
@@ -27,6 +26,7 @@ import {
 } from '@/components/icons';
 import { QuickAddTask } from '@/components/quick-add-task';
 import { CapacityMeter } from '@/components/capacity-meter';
+import { AutoAppliedBanner, PlanProposal, ResolveTray, WhyHere } from '@/components/scheduling';
 import { ShutdownCard } from '@/components/shutdown-card';
 import { WeekGrid } from '@/components/week-grid';
 import { archiveTask } from '@/app/actions';
@@ -117,6 +117,8 @@ export default async function TodayPage({
     stale,
     unplaced,
     highlights,
+    issues,
+    autoApplied,
   ] =
     await Promise.all([
       caller.plan.blocks({ from: dayStart, to: dayEnd }),
@@ -130,6 +132,8 @@ export default async function TodayPage({
       caller.task.stale(),
       caller.day.unplaced({ day: dayStart }),
       caller.day.highlights({ day: dayStart }),
+      caller.plan.issues(),
+      caller.plan.recentAutoApplied(),
     ]);
 
   // Same expansion the scheduler uses, narrowed to this day.
@@ -277,15 +281,19 @@ export default async function TodayPage({
             buttons on one screen promising the same thing. While the ritual is
             still the next step, this one steps back to an outline.
           */}
+          {/*
+            "Schedule my day" places every commitment for today in one
+            action (REQ-SCH-DAY); the mode decides whether it asks first.
+          */}
           <LoggedActionButton
-            action={rebuildPlan}
+            action={isToday ? scheduleMyDay : rebuildPlan}
             fields={{}}
-            successMessage="Found time for your work."
-            pendingLabel="Finding time…"
+            successMessage={isToday ? 'Scheduled your day.' : 'Found time for your work.'}
+            pendingLabel={isToday ? 'Scheduling…' : 'Finding time…'}
             className={`btn btn-sm gap-1.5 rounded-xl ${needsPlanning ? 'btn-outline' : 'btn-primary'}`}
           >
             <WandIcon />
-            Find time
+            {isToday ? 'Schedule my day' : 'Find time'}
           </LoggedActionButton>
         </div>
       </header>
@@ -316,57 +324,13 @@ export default async function TodayPage({
       ) : null}
 
       {/* --- A plan is waiting on a decision ------------------------------- */}
-      {pending ? (
-        <section className="card bg-base-100 border-primary/40 mb-5 border shadow-sm">
-          <div className="card-body gap-3 py-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="card-title text-base">Your schedule changed</h2>
-              <span className={`badge badge-sm ${pending.usedAi ? 'badge-secondary' : 'badge-ghost'}`}>
-                {pending.usedAi ? 'with AI' : 'no AI'}
-              </span>
-            </div>
+      {pending ? <PlanProposal pending={pending} timeZone={timeZone} /> : null}
 
-            <ul className="space-y-1.5">
-              {pending.changes
-                .filter((change) => change.kind !== 'UNCHANGED')
-                .slice(0, 6)
-                .map((change) => (
-                  <li key={change.id} className="flex items-start gap-2 text-sm">
-                    <span
-                      className={`badge badge-xs badge-soft mt-1 shrink-0 ${
-                        change.kind === 'REMOVED' ? 'badge-error' : 'badge-warning'
-                      }`}
-                    >
-                      {change.kind.toLowerCase()}
-                    </span>
-                    <span className="text-base-content/80">{change.reason}</span>
-                  </li>
-                ))}
-            </ul>
+      {/* --- Fluid changed something on its own: say so, offer undo -------- */}
+      <AutoAppliedBanner version={autoApplied} />
 
-            <div className="card-actions">
-              <LoggedActionButton
-                action={acceptPlanAction}
-                fields={{ planVersionId: pending.id }}
-                successMessage="Accepted the new plan."
-                pendingLabel="Accepting…"
-                className="btn btn-primary btn-sm rounded-xl"
-              >
-                Accept
-              </LoggedActionButton>
-              <LoggedActionButton
-                action={rejectPlanAction}
-                fields={{ planVersionId: pending.id }}
-                successMessage="Kept the plan you already had."
-                pendingLabel="Keeping…"
-                className="btn btn-ghost btn-sm"
-              >
-                Keep what I had
-              </LoggedActionButton>
-            </div>
-          </div>
-        </section>
-      ) : null}
+      {/* --- What the plan could not do, with something to do about it ----- */}
+      {isToday ? <ResolveTray issues={issues} timeZone={timeZone} /> : null}
 
       {/* --- Does today actually fit? --------------------------------------- */}
       <div className="mb-5">
@@ -520,6 +484,14 @@ export default async function TodayPage({
                             {block.state === 'PROPOSED' ? (
                               <span className="badge badge-xs badge-soft badge-warning shrink-0">proposed</span>
                             ) : null}
+                            {block.state === 'MISSED' ? (
+                              <span className="badge badge-xs badge-soft badge-error shrink-0">missed</span>
+                            ) : null}
+                            {block.isPinned && block.state === 'ACCEPTED' ? (
+                              <span className="badge badge-xs badge-ghost shrink-0" title="You placed this. Fluid never moves it.">
+                                pinned
+                              </span>
+                            ) : null}
                             {block.task.estimateAssumed && !completed ? (
                               <span className="badge badge-xs badge-ghost shrink-0" title={ASSUMED_ESTIMATE_HINT}>
                                 estimate assumed
@@ -532,6 +504,7 @@ export default async function TodayPage({
                             {formatDuration(minutes)}
                             {block.task.project ? ` · ${block.task.project.name}` : ''}
                           </p>
+                          {block.state !== 'COMPLETED' ? <WhyHere text={block.explanationText} className="mt-0.5" /> : null}
 
                           {/*
                             The focus session carries the working surface: the

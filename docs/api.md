@@ -112,7 +112,8 @@ planned:today  planned:none  priority:>=high  "exact words"
 
 ```json
 { "title": "…", "notes": "… or null", "priority": "LOW|MEDIUM|HIGH|URGENT",
-  "estimateMinutes": 45, "deadline": "2026-11-06 or null" }
+  "estimateMinutes": 45, "deadline": "2026-11-06 or null",
+  "deadlineKind": "SOFT|HARD", "preferredWindow": "MORNING|AFTERNOON|EVENING or null" }
 ```
 
 **Move** — `afterId` puts it directly below that card, `beforeId` directly

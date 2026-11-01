@@ -5,6 +5,7 @@ import { prisma, type Prisma } from '@fluid/db';
 import { startOfLocalDay } from '@fluid/core';
 import { localDate, resolveLocalDay } from '../local-date';
 import { protectedProcedure, router } from '../trpc';
+import { replanAfter } from '../replanning';
 import { weekShape } from './day';
 import { moveToCategoryColumn } from '../services/boards';
 
@@ -177,7 +178,7 @@ export const boardRouter = router({
    * promise at all. Going the other way deliberately does *not* demote: taking
    * a date off something is not the same as deciding it no longer matters.
    */
-  commit: protectedProcedure
+  commit: replanAfter('commitment_changed')
     .input(
       z.object({
         taskId: z.string().cuid(),
@@ -269,7 +270,7 @@ export const boardRouter = router({
    * built for, waking up to yesterday's failures already stacked on today is
    * precisely the thing that makes the app unopenable.
    */
-  rollover: protectedProcedure
+  rollover: replanAfter('commitment_changed')
     .input(z.object({ from: localDate, to: localDate }))
     .mutation(async ({ ctx, input }) => {
       const timeZone = ctx.user.timeZone;

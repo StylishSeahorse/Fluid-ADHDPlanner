@@ -68,6 +68,7 @@ export interface BoardColumnData {
   name: string;
   category: Category | null;
   wipLimit: number | null;
+  autoSchedule?: boolean | null;
   total: number;
   estimateMinutes: number;
   cards: BoardCard[];
@@ -542,6 +543,18 @@ function ColumnHeader({
                 placeholder="No limit"
                 className="input input-sm mt-1 w-full"
               />
+            </label>
+            <label className="block text-xs font-medium">
+              Schedule its cards
+              <select
+                name="autoSchedule"
+                defaultValue={column.autoSchedule === true ? 'on' : column.autoSchedule === false ? 'off' : 'inherit'}
+                className="select select-sm mt-1 w-full"
+              >
+                <option value="inherit">As my scheduling mode says</option>
+                <option value="on">Yes, automatically</option>
+                <option value="off">Only when planned for a day</option>
+              </select>
             </label>
             <button type="submit" className="btn btn-primary btn-xs rounded-lg">
               Save

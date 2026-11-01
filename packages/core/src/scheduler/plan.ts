@@ -605,18 +605,20 @@ function proposeOvertime(
     segments.sort((a, b) => a.distance - b.distance || a.start.getTime() - b.start.getTime());
     let picked: Interval | null = null;
     for (const segment of segments) {
+      // The nearest segment wins even if it is shorter than a full session,
+      // as long as it holds a real one: a split task takes what fits there.
+      const room = Math.floor(minutesBetween(segment.start, segment.end));
+      const take = task.isSplittable ? Math.min(size, room) : size;
+      if (take > room || take < Math.min(task.minChunkMinutes, size)) continue;
       // Hugging the working day, not the grid: overtime should be as close to
       // normal hours as it can get, so it starts the moment the buffer ends.
-      const start = segment.side === 'after' ? segment.start : addMinutes(segment.end, -size);
-      const end = addMinutes(start, size);
-      if (start >= segment.start && end <= segment.end) {
-        picked = { start, end };
-        break;
-      }
+      const start = segment.side === 'after' ? segment.start : addMinutes(segment.end, -take);
+      picked = { start, end: addMinutes(start, take) };
+      break;
     }
     if (!picked) break;
     chosen.push(picked);
-    need -= size;
+    need -= durationMinutes(picked);
     const taken = { start: addMinutes(picked.start, -buffer), end: addMinutes(picked.end, buffer) };
     segments = segments.flatMap((segment) =>
       subtractIntervals([segment], [taken]).map((rest) => ({ ...rest, side: segment.side, distance: segment.distance })),
@@ -876,6 +878,13 @@ export function plan(input: SchedulingInput): Plan {
   }
 
   const processed = new Set<string>();
+  /** Minutes of each task's pinned sessions that have not ended yet. */
+  const pinnedAhead = new Map<string, number>();
+  for (const pinnedBlock of input.pinned) {
+    if (pinnedBlock.end <= now) continue;
+    const from = pinnedBlock.start > now ? pinnedBlock.start : now;
+    pinnedAhead.set(pinnedBlock.taskId, (pinnedAhead.get(pinnedBlock.taskId) ?? 0) + durationMinutes({ start: from, end: pinnedBlock.end }));
+  }
 
   for (const [orderIndex, task] of ordered.entries()) {
     processed.add(task.id);
@@ -883,7 +892,10 @@ export function plan(input: SchedulingInput): Plan {
     const rankFactors = rankFactorsFor(task, ordered[orderIndex + 1], now);
     const retainedIntervals = retained.get(task.id) ?? [];
     const retainedMinutes = totalMinutes(retainedIntervals);
-    const outstandingMinutes = task.remainingMinutes - retainedMinutes;
+    // Pinned sessions of this task still to come are work already placed by
+    // a person; scheduling the full remainder again would double-book it.
+    const pinnedMinutes = pinnedAhead.get(task.id) ?? 0;
+    const outstandingMinutes = Math.max(0, task.remainingMinutes - retainedMinutes - pinnedMinutes);
 
     // Chunk only the work the stability pass did not already cover.
     const chunks = outstandingMinutes > 0 ? chunkTask({ ...task, remainingMinutes: outstandingMinutes }) : [];
@@ -1206,7 +1218,7 @@ export function plan(input: SchedulingInput): Plan {
     const spilledMinutes = [...onTime, ...late]
       .filter((chunk) => chunk.leftDay)
       .reduce((sum, chunk) => sum + durationMinutes(chunk.interval), 0);
-    const placedMinutes = totalMinutes(allChunks.map((chunk) => chunk.interval));
+    const placedMinutes = Math.min(task.remainingMinutes, totalMinutes(allChunks.map((chunk) => chunk.interval)) + pinnedMinutes);
     const shortfall = task.remainingMinutes - placedMinutes;
 
     if (overtime) {

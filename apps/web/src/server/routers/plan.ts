@@ -4,37 +4,43 @@ import { z } from 'zod';
 import { prisma } from '@fluid/db';
 import { minutesBetween } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
-import { acceptPlan, buildPlan, rejectPlan } from '../services/planning';
+import { acceptPlan, currentIssues, decideOvertime, recentAutoApplied, rejectPlan, StalePlanError, undoPlan } from '../services/planning';
+import { requestReplan, runReplan } from '../jobs/replan-jobs';
+import { overlapsOtherSession } from '../services/block-overlap';
+import { replanAfter } from '../replanning';
 import { externalEvents } from '../services/external-events';
 import { requestPushForUser } from '../jobs/calendar-jobs';
 
 export const planRouter = router({
-  /** Re-plan. `trigger` becomes the "because…" in the diff the user reads. */
+  /**
+   * Re-plan now, because a person asked. The mode gate still decides whether
+   * it applies or asks; `schedule_day` is "Schedule my day" (REQ-SCH-DAY).
+   */
   build: protectedProcedure
     .input(
       z
         .object({
           trigger: z
-            .enum([
-              'manual',
-              'task_skipped',
-              'task_overran',
-              'new_urgent_task',
-              'task_completed',
-              'external_event_conflict',
-              'settings_changed',
-            ])
+            .enum(['manual', 'schedule_day', 'task_skipped', 'task_overran', 'new_urgent_task', 'task_completed', 'external_event_conflict', 'settings_changed'])
             .default('manual'),
         })
         .default({ trigger: 'manual' }),
     )
-    .mutation(async ({ ctx, input }) => buildPlan(ctx.user.id, input.trigger)),
+    .mutation(async ({ ctx, input }) => runReplan(ctx.user.id, input.trigger, { requested: true, userInitiated: true })),
 
   accept: protectedProcedure
-    .input(z.object({ planVersionId: z.string().cuid(), auto: z.boolean().default(false) }))
+    .input(z.object({ planVersionId: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
-      await acceptPlan(ctx.user.id, input.planVersionId, input.auto);
-      // Accepted blocks belong on the real calendar; get them there soon.
+      try {
+        await acceptPlan(ctx.user.id, input.planVersionId);
+      } catch (error) {
+        if (error instanceof StalePlanError) {
+          await requestReplan(ctx.user.id, 'manual', { userInitiated: true, delayMs: 0 });
+          throw new TRPCError({ code: 'CONFLICT', message: error.message });
+        }
+        throw error;
+      }
+      // Accepted sessions belong on the real calendar; get them there soon.
       await requestPushForUser(ctx.user.id, 'plan-accepted');
     }),
 
@@ -43,6 +49,79 @@ export const planRouter = router({
     .mutation(async ({ ctx, input }) => {
       await rejectPlan(ctx.user.id, input.planVersionId);
     }),
+
+  /** Undo an applied plan, or one line of it. What comes back comes back pinned. */
+  undo: protectedProcedure
+    .input(z.object({ planVersionId: z.string().cuid(), changeId: z.string().cuid().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await undoPlan(ctx.user.id, input.planVersionId, input.changeId);
+      await requestPushForUser(ctx.user.id, 'plan-undone');
+    }),
+
+  /** Approve or decline an overtime proposal. Nothing goes out of hours otherwise. */
+  overtime: protectedProcedure
+    .input(z.object({ planVersionId: z.string().cuid(), taskId: z.string().min(1), approve: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await decideOvertime(ctx.user.id, input.planVersionId, input.taskId, input.approve);
+      if (input.approve) await requestPushForUser(ctx.user.id, 'overtime-approved');
+    }),
+
+  /** What the plan could not do well, for the resolve tray. */
+  issues: protectedProcedure.query(async ({ ctx }) => currentIssues(ctx.user.id)),
+
+  /** The latest plan Fluid applied on its own, within the hour, for "Undo". */
+  recentAutoApplied: protectedProcedure.query(async ({ ctx }) => recentAutoApplied(ctx.user.id)),
+
+  /**
+   * One-tap fixes from the resolve tray. Each is an ordinary edit a person
+   * could make by hand; the replan that follows is the usual one.
+   */
+  resolve: replanAfter('task_changed')
+    .input(
+      z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('extend-deadline'), taskId: z.string().min(1), days: z.number().int().min(1).max(30) }),
+        /** Take `by` minutes off the estimate: the part that does not fit. */
+        z.object({ kind: z.literal('trim-estimate'), taskId: z.string().min(1), by: z.number().int().min(1).max(10_080) }),
+        z.object({ kind: z.literal('let-go-missed'), blockId: z.string().cuid() }),
+      ]),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.kind === 'let-go-missed') {
+        await prisma.scheduledBlock.updateMany({
+          where: { id: input.blockId, state: 'MISSED', task: { userId: ctx.user.id } },
+          data: { state: 'SKIPPED' },
+        });
+        return;
+      }
+      const task = await prisma.task.findFirst({ where: { id: input.taskId, userId: ctx.user.id } });
+      if (!task) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (input.kind === 'extend-deadline') {
+        if (!task.deadline) throw new TRPCError({ code: 'BAD_REQUEST', message: 'That task has no deadline.' });
+        await prisma.task.update({
+          where: { id: task.id },
+          data: { deadline: new Date(task.deadline.getTime() + input.days * 86_400_000), lastTouchedAt: new Date() },
+        });
+      } else {
+        await prisma.task.update({
+          where: { id: task.id },
+          data: { estimateMinutes: Math.max(5, task.estimateMinutes - input.by), estimateAssumed: false, lastTouchedAt: new Date() },
+        });
+      }
+    }),
+
+  /** Why a session is where it is. */
+  why: protectedProcedure.input(z.object({ blockId: z.string().cuid() })).query(async ({ ctx, input }) => {
+    const block = await prisma.scheduledBlock.findFirst({
+      where: { id: input.blockId, task: { userId: ctx.user.id } },
+      select: { explanationText: true, isPinned: true },
+    });
+    if (!block) throw new TRPCError({ code: 'NOT_FOUND' });
+    return {
+      text:
+        block.explanationText ??
+        (block.isPinned ? 'You put this here. Fluid never moves it.' : 'Placed before explanations were recorded. The next replan will explain it.'),
+    };
+  }),
 
   pending: protectedProcedure.query(async ({ ctx }) => {
     return prisma.planVersion.findFirst({
@@ -60,7 +139,7 @@ export const planRouter = router({
         prisma.scheduledBlock.findMany({
           where: {
             task: { userId: ctx.user.id },
-            state: { in: ['PROPOSED', 'ACCEPTED', 'COMPLETED'] },
+            state: { in: ['PROPOSED', 'ACCEPTED', 'COMPLETED', 'MISSED'] },
             startsAt: { lt: input.to },
             endsAt: { gt: input.from },
           },
@@ -127,6 +206,9 @@ export const planRouter = router({
         }),
     )
     .mutation(async ({ ctx, input }) => {
+      // A drag onto other work is a decision: acknowledge the overlap rather
+      // than refuse it, and let the next plan move what is in the way.
+      const overlapAck = await overlapsOtherSession(prisma, input.blockId, input.startsAt, input.endsAt);
       const result = await prisma.scheduledBlock.updateMany({
         where: {
           id: input.blockId,
@@ -135,7 +217,7 @@ export const planRouter = router({
           // would let two different flows disagree about whether it exists.
           state: 'ACCEPTED',
         },
-        data: { startsAt: input.startsAt, endsAt: input.endsAt, isPinned: true },
+        data: { startsAt: input.startsAt, endsAt: input.endsAt, isPinned: true, ...(overlapAck ? { overlapAck } : {}) },
       });
 
       if (result.count === 0) {
@@ -146,6 +228,7 @@ export const planRouter = router({
       }
 
       await requestPushForUser(ctx.user.id, 'block-moved');
+      if (overlapAck) await requestReplan(ctx.user.id, 'task_changed', { userInitiated: true, delayMs: 0 });
     }),
 
   /**

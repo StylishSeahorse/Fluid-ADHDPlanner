@@ -33,6 +33,9 @@ model User {
   email     String   @unique
   name      String?
   timeZone  String   @default("UTC") // IANA id, e.g. "Europe/London"
+  /// Bumped by every applied plan. A replan that read an older epoch must
+  /// recompute rather than overwrite (§13.D).
+  planEpoch Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -64,6 +67,7 @@ model User {
   comments            Comment[]
   activity            ActivityEvent[]
   attachments         Attachment[]
+  scheduledBlocks     ScheduledBlock[]
   savedViews          SavedView[]
   apiTokens           ApiToken[]
 
@@ -133,10 +137,18 @@ model UserPreferences {
   defaultEstimateMinutes Int @default(30)
   /// How long a plan diff waits before auto-accepting. 0 disables auto-accept
   /// entirely — some people need the control, others need the decision made.
-  autoAcceptSeconds  Int @default(30)
+  autoAcceptSeconds  Int @default(0)
   /// Cap on how much the scheduler may reshuffle in one replan. A schedule that
   /// churns is a schedule users stop trusting.
   maxDailyReshuffles Int @default(3)
+  /// MANUAL / ASSISTED / HYBRID / AUTOMATIC (§13.C).
+  schedulingMode     SchedulingMode @default(ASSISTED)
+  /// How much Hybrid may move without asking: 2 cautious, 4 balanced, 8 relaxed.
+  hybridThreshold    Int @default(4)
+  /// How far ahead the scheduler plans, 1–90 days.
+  horizonDays        Int @default(14)
+  /// A cap on placed work per day, below working hours. Null means none.
+  maxDailyWorkMinutes Int?
 
   // --- AI autonomy
   /// How much freedom the AI has to change the calendar without being asked.
@@ -435,6 +447,8 @@ model Project {
   description String?
   color       String?
   status      ProjectStatus @default(ACTIVE)
+  /// 0 low, 1 normal, 2 high. Ranks after priority, before deadlines.
+  importance  Int           @default(1)
 
   /// Rollup deadline. Individual task deadlines may be earlier, never later.
   deadline DateTime? @db.Timestamptz(3)
@@ -553,6 +567,14 @@ model Task {
   actualMinutes           Int  @default(0)
 
   deadline      DateTime? @db.Timestamptz(3)
+  /// SOFT is a target; HARD is a cut-off the scheduler may displace other
+  /// work for, and may propose overtime for (never apply it).
+  deadlineKind  DeadlineKind @default(SOFT)
+  /// A soft preference for time of day, relaxed before the committed day is.
+  preferredWindow PreferredWindow?
+  /// Per-task override of whether the scheduler places it at all. Null
+  /// inherits from the column, then from the scheduling mode.
+  autoSchedule  Boolean?
   /// Do not schedule before this — waiting on someone, or simply not yet
   /// relevant.
   earliestStart DateTime? @db.Timestamptz(3)
@@ -766,6 +788,27 @@ enum BlockState {
   COMPLETED
   /// User skipped it. Feeds avoidance detection.
   SKIPPED
+  /// A pinned session that ended without work or completion. Never moved by
+  /// the engine; a recovery proposal asks for a new time instead.
+  MISSED
+}
+
+enum DeadlineKind {
+  SOFT
+  HARD
+}
+
+enum PreferredWindow {
+  MORNING
+  AFTERNOON
+  EVENING
+}
+
+enum SchedulingMode {
+  MANUAL
+  ASSISTED
+  HYBRID
+  AUTOMATIC
 }
 
 /// A period of work on a task, mirrored to the calendar as an APP_BLOCK event.
@@ -793,14 +836,29 @@ model ScheduledBlock {
   /// TimeEstimateSample.
   actualMinutes Int?
 
+  /// The owner, denormalized from the task (a trigger fills it) so the
+  /// database itself can refuse two accepted sessions at once.
+  userId String?
+  /// "Why here?": the engine's structured explanation, and its text.
+  explanation     Json?
+  explanationText String?
+  /// The task's committed day when this was placed (see the engine's
+  /// stability pass).
+  committedDay DateTime? @db.Timestamptz(3)
+  /// A person deliberately put this over other work. Exempt from the
+  /// no-overlap constraint.
+  overlapAck Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   task        Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
   event       Event?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
   planVersion PlanVersion? @relation(fields: [planVersionId], references: [id], onDelete: SetNull)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+  @@index([userId, startsAt])
   @@index([startsAt, endsAt])
   @@index([state])
   @@map("scheduled_blocks")
@@ -813,6 +871,8 @@ enum PlanStatus {
   REJECTED
   /// Superseded by a newer plan before the user responded.
   SUPERSEDED
+  /// Applied, then undone as a whole. Its sessions were put back, pinned.
+  REVERTED
 }
 
 /// One run of the scheduler. Kept as a version rather than mutating in place so
@@ -837,6 +897,20 @@ model PlanVersion {
   autoAcceptedAt DateTime?
   respondedAt    DateTime?
   createdAt      DateTime  @default(now())
+
+  /// Applied by Hybrid or Automatic mode without a question (undo still works).
+  autoApplied     Boolean @default(false)
+  disruptionScore Float?
+  /// Why it was applied or asked about, in plain words.
+  gateReason      String?
+  /// Out-of-hours suggestions. Never applied without an explicit yes.
+  overtimeProposals Json?
+  /// What the plan could not do well: unscheduled, unreachable, spilled.
+  issues          Json?
+  /// The calendar data was old: shown on the plan, and automation paused.
+  staleCalendarSince DateTime?
+  /// sha256 of the engine input, for reproducing a plan.
+  inputDigest     String?
 
   user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   changes PlanChange[]
@@ -1438,6 +1512,10 @@ model BoardColumn {
   name     String
   position String
   category ColumnCategory?
+  /// Whether cards in this column are scheduled automatically. Null inherits
+  /// the user's mode; a BACKLOG column is never scheduled unless a card is
+  /// committed to a day.
+  autoSchedule Boolean?
   /// Work-in-progress limit. Over it, the column warns — it never refuses.
   wipLimit Int?
 

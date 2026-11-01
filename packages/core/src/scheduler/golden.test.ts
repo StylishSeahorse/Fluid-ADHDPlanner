@@ -331,3 +331,37 @@ describe('“Why here?” text', () => {
     expect(result.blocks.find((block) => block.taskId === 'b')?.explanation?.bindingConstraints).toEqual([{ kind: 'daily_cap' }]);
   });
 });
+
+describe('pinned sessions', () => {
+  it('count as placed work for their task, so it is never double-booked', () => {
+    const scenario = input({
+      pinned: [{ taskId: 'a', blockId: 'p1', ...span('Mon 14:00', 'Mon 15:00') }],
+      tasks: [task({ id: 'a', remainingMinutes: 90 })],
+    });
+    const result = plan(scenario);
+    // 90 minutes of work, 60 of it pinned: only 30 more get placed.
+    expect(sessions(result.blocks, 'a')).toEqual(['Mon 09:00–09:30', 'Mon 14:00–15:00']);
+    expect(result.unscheduled).toEqual([]);
+  });
+});
+
+describe('overtime proposals', () => {
+  it('take a shorter out-of-hours gap rather than none at all', () => {
+    const scenario = input({
+      now: at('Mon 09:00'),
+      busy: [
+        { ...span('Mon 09:00', 'Mon 17:00'), title: 'Offsite' },
+        // An evening commitment splits the time after work into two gaps.
+        { ...span('Mon 17:40', 'Mon 19:00'), title: 'Gym' },
+      ],
+      overtimeReachMinutes: 180,
+      tasks: [task({ id: 'x', title: 'Grant', remainingMinutes: 120, deadline: at('Mon 20:00'), deadlineKind: 'HARD' })],
+    });
+    const result = plan(scenario);
+    const intervals = result.overtimeProposals[0]?.intervals.map((interval) => `${local(interval.start)}–${local(interval.end).slice(4)}`);
+    // 17:00–17:40 (40 min) is nearest, then 19:00–20:00 (60 min, up to the deadline).
+    expect(intervals).toEqual(['Mon 17:00–17:40', 'Mon 19:00–20:00']);
+    expect(result.overtimeProposals[0]?.minutes).toBe(100);
+    expect(result.blocks.filter((block) => block.taskId === 'x')).toEqual([]);
+  });
+});

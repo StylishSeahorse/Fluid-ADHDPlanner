@@ -8,6 +8,7 @@ import { RoutinesSection } from '@/components/routines-section';
 import { CalendarConnections } from '@/components/calendar-connections';
 import { NotificationSettings } from '@/components/pwa/notification-settings';
 import { ApiTokens } from '@/components/api-tokens';
+import { SchedulingSettings } from '@/components/scheduling-settings';
 import { getCaller } from '@/server/caller';
 import { requireUser } from '@/server/auth/session';
 
@@ -151,6 +152,20 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         />
       </section>
 
+      <section id="scheduling" className="scroll-mt-32">
+        <SectionTitle>Scheduling</SectionTitle>
+        <SchedulingSettings
+          preferences={{
+            schedulingMode: preferences?.schedulingMode ?? 'ASSISTED',
+            hybridThreshold: preferences?.hybridThreshold ?? 4,
+            horizonDays: preferences?.horizonDays ?? 14,
+            maxDailyWorkMinutes: preferences?.maxDailyWorkMinutes ?? null,
+            maxDailyReshuffles: preferences?.maxDailyReshuffles ?? 3,
+            autoAcceptSeconds: preferences?.autoAcceptSeconds ?? 0,
+          }}
+        />
+      </section>
+
       <section id="areas" className="scroll-mt-32">
         <SectionTitle>Areas</SectionTitle>
         <Areas areas={areas} />
@@ -235,6 +250,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 const SECTIONS = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'day', label: 'Your day' },
+  { id: 'scheduling', label: 'Scheduling' },
   { id: 'areas', label: 'Areas' },
   { id: 'calendars', label: 'Calendars' },
   { id: 'ai', label: 'AI' },

@@ -6,6 +6,10 @@
 import { features } from '@fluid/env';
 import { startNotificationLoop } from './server/services/notifications';
 import { startCalendarWorker } from './server/jobs/calendar-jobs';
+import { startReplanWorker } from './server/jobs/replan-jobs';
 
 if (features.notifications) startNotificationLoop();
-if (features.worker) void startCalendarWorker();
+if (features.worker) {
+  void startCalendarWorker();
+  void startReplanWorker();
+}

@@ -88,6 +88,22 @@ export function describeTrigger(trigger: string): string {
       return 'your working hours or preferences changed';
     case 'manual':
       return 'you asked for a fresh plan';
+    case 'schedule_day':
+      return 'you asked to schedule your day';
+    case 'task_changed':
+      return 'a task changed';
+    case 'commitment_changed':
+      return 'you planned work for a different day';
+    case 'calendar_synced':
+      return 'your calendar changed';
+    case 'missed_session':
+      return 'a session you placed yourself was missed';
+    case 'undo':
+      return 'you undid a change';
+    case 'overtime_approved':
+      return 'you approved some time outside your hours';
+    case 'daily_rollover':
+      return 'a new day started';
     default:
       return 'your schedule changed';
   }

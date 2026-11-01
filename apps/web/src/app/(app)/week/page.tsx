@@ -23,6 +23,7 @@ import {
 import { WeekGrid } from '@/components/week-grid';
 import { getCaller } from '@/server/caller';
 import { requireUser } from '@/server/auth/session';
+import { AutoAppliedBanner } from '@/components/scheduling';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,6 +94,7 @@ export default async function WeekPage({
 }) {
   const user = await requireUser();
   const caller = await getCaller();
+  const autoApplied = await caller.plan.recentAutoApplied();
   const timeZone = user.timeZone;
 
   const params = await searchParams;
@@ -255,7 +257,7 @@ export default async function WeekPage({
 
     return (
       <>
-        {header}
+        <>{header}<AutoAppliedBanner version={autoApplied} /></>
 
         {stranded.length > 0 ? (
           <div className="border-base-200 bg-base-100 mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-4 py-3">
@@ -364,7 +366,7 @@ export default async function WeekPage({
 
   return (
     <>
-      {header}
+      <>{header}<AutoAppliedBanner version={autoApplied} /></>
 
       {/*
         Says what is actually true right now. A permanent "connect a calendar"

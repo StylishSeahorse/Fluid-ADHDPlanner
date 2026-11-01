@@ -12,6 +12,7 @@ export {
   disruptionScore,
   gatePlan,
   HYBRID_THRESHOLDS,
+  type GateChange,
   type GateDecision,
   type GateInput,
   type SchedulingMode,

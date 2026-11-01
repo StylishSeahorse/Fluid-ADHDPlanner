@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { prisma, type ProtectedTime } from '@fluid/db';
 import { protectedProcedure, router } from '../trpc';
+import { replanAfter } from '../replanning';
 
 /**
  * Recurring routine blocks — brush teeth, lunch, the commute — the kind of
@@ -76,7 +77,7 @@ export const routineRouter = router({
     return groupRows(rows);
   }),
 
-  create: protectedProcedure.input(routineInput).mutation(async ({ ctx, input }) => {
+  create: replanAfter('settings_changed').input(routineInput).mutation(async ({ ctx, input }) => {
     if (input.startTime === input.endTime) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: 'That would be zero minutes long.' });
     }
@@ -101,7 +102,7 @@ export const routineRouter = router({
   }),
 
   /** Deletes every row in the group — the whole routine, not one of its days. */
-  delete: protectedProcedure
+  delete: replanAfter('settings_changed')
     .input(z.object({ groupId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const result = await prisma.protectedTime.deleteMany({
