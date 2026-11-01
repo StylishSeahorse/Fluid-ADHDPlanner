@@ -77,8 +77,51 @@ export function assertValidTimeZone(timeZone: string): void {
   }
 }
 
-/** What wall-clock time is it in `timeZone` at this instant? */
+const QUARTER_HOUR_MS = 900_000;
+/** Zone -> quarter-hour bucket -> offset in ms. Nested to avoid building string keys. */
+const offsetCache = new Map<string, Map<number, number>>();
+
+/**
+ * What wall-clock time is it in `timeZone` at this instant?
+ *
+ * `Intl` formatting is by far the slowest thing the scheduler does, and it
+ * asks this question thousands of times per plan. Every modern zone offset is
+ * a multiple of 15 minutes, and clocks only ever change at a local whole or
+ * half hour — so offsets change only on 15-minute boundaries in UTC. The
+ * offset is therefore looked up once per zone and quarter-hour and the rest
+ * is arithmetic. An offset that is not a multiple of 15 minutes (historical
+ * local mean time) skips the cache and asks `Intl` every time.
+ */
 export function toLocal(instant: Date, timeZone: string): LocalDateTime {
+  const ms = instant.getTime();
+  const bucket = Math.floor(ms / QUARTER_HOUR_MS);
+  let zone = offsetCache.get(timeZone);
+  if (!zone) {
+    zone = new Map();
+    offsetCache.set(timeZone, zone);
+  }
+  let offset = zone.get(bucket);
+  if (offset === undefined) {
+    const bucketStart = bucket * QUARTER_HOUR_MS;
+    const local = formatLocal(new Date(bucketStart), timeZone);
+    offset = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second) - bucketStart;
+    if (offset % QUARTER_HOUR_MS !== 0) return formatLocal(instant, timeZone);
+    if (zone.size > 200_000) zone.clear();
+    zone.set(bucket, offset);
+  }
+  const shifted = new Date(ms + offset);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
+  };
+}
+
+/** `toLocal` the slow, authoritative way. */
+function formatLocal(instant: Date, timeZone: string): LocalDateTime {
   const parts = formatter(timeZone).formatToParts(instant);
   const get = (type: Intl.DateTimeFormatPartTypes): number => {
     const part = parts.find((candidate) => candidate.type === type);

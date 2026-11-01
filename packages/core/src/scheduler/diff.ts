@@ -65,6 +65,8 @@ export interface DiffContext {
    * sessions say so, because "1h on Thursday" reads as a fact otherwise.
    */
   assumedEstimates?: ReadonlySet<string>;
+  /** Task id -> the task it made room for, from `Plan.displaced`. */
+  displacedFor?: ReadonlyMap<string, string>;
 }
 
 const ASSUMED_NOTE = ' Its length is your default estimate, since none was set.';
@@ -154,6 +156,8 @@ export function diffPlans(
     if (moved) {
       const shift = minutesBetween(previousBlock.start, nextBlock.start);
       const direction = shift > 0 ? 'later' : 'earlier';
+      const madeRoomFor = context.displacedFor?.get(nextBlock.taskId);
+      const because = madeRoomFor ? `it made room for ${title(madeRoomFor)}, which needed the time more` : cause;
 
       changes.push({
         kind: 'MOVED',
@@ -163,7 +167,7 @@ export function diffPlans(
         reason:
           `${title(nextBlock.taskId)} moved to ` +
           `${describeMoment(nextBlock.start, context.timeZone, context.now)} — ` +
-          `${describeDuration(Math.abs(shift))} ${direction} — because ${cause}.`,
+          `${describeDuration(Math.abs(shift))} ${direction} — because ${because}.`,
       });
       continue;
     }

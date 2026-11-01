@@ -9,6 +9,12 @@
 
 export type EnergyLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+/**
+ * SOFT: a target. Missing it is reported, never prevented at any cost.
+ * HARD: a real cut-off. It may displace lower-ranked flexible work and, as a
+ * last resort, produce an overtime *proposal* — never an out-of-hours block.
+ */
+export type DeadlineKind = 'SOFT' | 'HARD';
 
 /** A half-open interval [start, end). Adjacent intervals do not overlap. */
 export interface Interval {
@@ -46,6 +52,33 @@ export interface SchedulableTask {
   committedTo?: Interval;
   /** Purely for diff copy. */
   projectName?: string;
+  /** Defaults to SOFT. */
+  deadlineKind?: DeadlineKind;
+  /** 0 (low) – 2 (high), from the project. Defaults to 1. Ranks after priority. */
+  projectImportance?: number;
+  /** Older work first among equals, so new tasks cannot starve old ones. */
+  createdAt?: Date;
+  /**
+   * A soft preference for time of day, in local minutes after midnight.
+   * Tried together with energy and relaxed before the committed day is.
+   */
+  preferredWindow?: { startMinute: number; endMinute: number; label?: string };
+  /**
+   * Position in a validated AI ordering hint. A tie-break *within* the same
+   * rank tier only: it can never lift a task above one with a higher priority.
+   */
+  aiHintRank?: number;
+  /**
+   * False for personal-area tasks: they occupy time but are not work, so they
+   * do not count against `maxDailyWorkMinutes` or the day's work total.
+   */
+  countsAsWork?: boolean;
+}
+
+/** Busy time, with enough identity for an explanation to name it. */
+export interface BusyInterval extends Interval {
+  id?: string;
+  title?: string;
 }
 
 /** A block the user has fixed in place. The scheduler routes around it. */
@@ -95,6 +128,12 @@ export interface SchedulingPreferences {
    * and stops the scheduler producing 09:07–09:52 blocks.
    */
   slotGranularityMinutes: number;
+  /**
+   * A cap below working hours ("I only do five hours of real work a day").
+   * Once a day holds this much work, its remaining free time is not used for
+   * more. Unset means working hours are the only bound.
+   */
+  maxDailyWorkMinutes?: number | null;
 }
 
 export interface SchedulingInput {
@@ -105,7 +144,7 @@ export interface SchedulingInput {
 
   tasks: SchedulableTask[];
   /** Everything already occupying time: external events plus pinned blocks. */
-  busy: Interval[];
+  busy: BusyInterval[];
   pinned: PinnedBlock[];
 
   workingHours: WorkingHoursRule[];
@@ -119,6 +158,14 @@ export interface SchedulingInput {
    * specifically it destroys the external structure they are relying on.
    */
   previous?: PlannedBlock[];
+
+  /**
+   * Hours overtime may never be proposed in, as local "HH:MM" (may wrap past
+   * midnight). Overtime is also kept within `overtimeReachMinutes` of the
+   * working day, so a proposal never reads as "work at 3am".
+   */
+  quietHours?: { start: string; end: string } | null;
+  overtimeReachMinutes?: number;
 }
 
 export interface PlannedBlock {
@@ -130,6 +177,88 @@ export interface PlannedBlock {
   /** Which chunk of the task this is, when split. 1-based. */
   chunkIndex: number;
   chunkCount: number;
+  /** Why this block is where it is. Every block the engine places has one. */
+  explanation?: BlockExplanation;
+  /**
+   * The task's committed day when this block was placed. A block that spilled
+   * off its day is kept on the next replan only while the commitment is the
+   * same: if the person moves the task to another day, the old spill goes.
+   */
+  committedDay?: Date;
+}
+
+/** What put a task ahead of the one after it, in rank order. */
+export type RankFactor =
+  | 'committed_day'
+  | 'hard_deadline_risk'
+  | 'priority'
+  | 'project_importance'
+  | 'slack'
+  | 'ai_hint'
+  | 'age';
+
+/** Why a block is not earlier than it is. */
+export type BindingConstraint =
+  | { kind: 'now' }
+  | { kind: 'earliest_start'; at: Date }
+  | { kind: 'dependency'; taskId: string; endsAt: Date }
+  | { kind: 'busy'; eventId?: string; title?: string; endsAt: Date }
+  | { kind: 'protected'; label?: string; endsAt: Date }
+  | { kind: 'working_hours' }
+  | { kind: 'earlier_work'; taskId: string; endsAt: Date }
+  | { kind: 'previous_session' }
+  | { kind: 'committed_day' }
+  | { kind: 'retained_from_previous_plan' }
+  | { kind: 'pinned' }
+  | { kind: 'daily_cap' }
+  | { kind: 'preference' }
+  | { kind: 'gap_too_short' };
+
+export type Relaxation = 'energy' | 'preferred_window' | 'committed_day' | 'deadline';
+
+export interface BlockExplanation {
+  rankFactors: RankFactor[];
+  bindingConstraints: BindingConstraint[];
+  relaxed: Relaxation[];
+  /** Tasks whose sessions were moved to make room for this one. */
+  displaced?: string[];
+  /** Placed by the hard-deadline repair's adaptive chunking. */
+  adaptive?: boolean;
+}
+
+/**
+ * Out-of-hours time that would let a hard deadline be met. Always a proposal:
+ * no mode, however automatic, applies it without an explicit yes.
+ */
+export interface OvertimeProposal {
+  taskId: string;
+  intervals: Interval[];
+  minutes: number;
+  /** Minutes still short inside working hours, which these intervals cover. */
+  shortfallMinutes: number;
+  explanation: string;
+}
+
+/** One local day of the horizon, for capacity meters and "≈40 min over". */
+export interface DaySummary {
+  /** Start of the local day. */
+  day: Date;
+  /** Free working minutes before anything was placed. */
+  availableMinutes: number;
+  /** Remaining work committed to this day. */
+  committedMinutes: number;
+  /** Work actually placed on this day. */
+  scheduledMinutes: number;
+  overcommitted: boolean;
+  spilledMinutes: number;
+}
+
+/** A lower-ranked task whose kept session was released to make room. */
+export interface Displacement {
+  taskId: string;
+  /** The task that needed the time. */
+  forTaskId: string;
+  from: Interval;
 }
 
 export type UnscheduledReason =
@@ -137,7 +266,9 @@ export type UnscheduledReason =
   | 'DEADLINE_UNREACHABLE'
   | 'BLOCKED_BY_DEPENDENCY'
   | 'DEPENDENCY_CYCLE'
-  | 'STARTS_AFTER_HORIZON';
+  | 'STARTS_AFTER_HORIZON'
+  /** Its deadline is past the planning window; the rest is planned as the window moves. */
+  | 'BEYOND_HORIZON';
 
 export interface UnscheduledTask {
   taskId: string;
@@ -184,6 +315,9 @@ export interface Plan {
   /** Committed work that had to be placed outside the day it was promised to. */
   spilled: SpilledCommitment[];
   changes: PlanChange[];
+  overtimeProposals: OvertimeProposal[];
+  days: DaySummary[];
+  displaced: Displacement[];
   /** Diagnostics, surfaced on the sync/plan detail screen. */
   stats: {
     availableMinutes: number;

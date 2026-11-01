@@ -110,11 +110,16 @@ export function applySuggestedOrder(
   orderedTaskIds: string[],
 ): SchedulableTask[] {
   const rank = new Map(orderedTaskIds.map((id, index) => [id, index]));
-  return [...tasks].sort((a, b) => {
-    const rankA = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-    const rankB = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-    return rankA - rankB;
-  });
+  // The engine sorts by its own rank key, so array order alone would be thrown
+  // away. `aiHintRank` is the hint's explicit tier: it breaks ties *within*
+  // priority and slack, and can never lift a task above a higher priority.
+  return [...tasks]
+    .sort((a, b) => {
+      const rankA = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const rankB = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      return rankA - rankB;
+    })
+    .map((task) => (rank.has(task.id) ? { ...task, aiHintRank: rank.get(task.id)! } : task));
 }
 
 /**

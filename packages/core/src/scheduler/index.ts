@@ -1,4 +1,21 @@
-export { plan, chunkTask } from './plan';
+export {
+  plan,
+  chunkTask,
+  checkPlanInvariants,
+  compareTasks,
+  isHardDeadlineAtRisk,
+  rankKey,
+  PlanInvariantError,
+} from './plan';
+export { describeExplanation, type ExplainContext } from './explain';
+export {
+  disruptionScore,
+  gatePlan,
+  HYBRID_THRESHOLDS,
+  type GateDecision,
+  type GateInput,
+  type SchedulingMode,
+} from './gate';
 export { diffPlans, summarizeChanges, describeTrigger, describeMoment } from './diff';
 export {
   buildAvailability,
