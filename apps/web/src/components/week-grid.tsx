@@ -18,7 +18,7 @@ export interface WeekGridBlock {
   startsAt: Date;
   endsAt: Date;
   state: string;
-  task: { title: string };
+  task: { title: string; estimateAssumed?: boolean };
 }
 
 export interface WeekGridEvent {
@@ -412,7 +412,7 @@ export function WeekGrid({
                       draggable ? 'cal-evt-draggable' : ''
                     } ${beingDragged ? 'cal-evt-lifted' : ''}`}
                     style={{ top: `${top}%`, height: `${height}%` }}
-                    title={`${block.task.title} · ${formatTime(liveStart, timeZone)}–${formatTime(liveEnd, timeZone)}${draggable ? ' · drag to move, or its edges to resize' : ''}`}
+                    title={`${block.task.title} · ${formatTime(liveStart, timeZone)}–${formatTime(liveEnd, timeZone)}${block.task.estimateAssumed ? ' · estimate assumed' : ''}${draggable ? ' · drag to move, or its edges to resize' : ''}`}
                     draggable={draggable}
                     onDragStart={(event) => {
                       if (!draggable) return;
@@ -448,6 +448,7 @@ export function WeekGrid({
                     <div className="line-clamp-2 font-semibold">{block.task.title}</div>
                     <div className="text-base-content/40 mt-0.5 text-[0.6rem]">
                       {proposed ? 'Awaiting your OK' : 'AI task block'}
+                      {block.task.estimateAssumed ? ' · estimate assumed' : ''}
                     </div>
 
                     {adjustable ? (

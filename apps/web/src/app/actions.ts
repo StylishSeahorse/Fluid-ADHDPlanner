@@ -147,7 +147,9 @@ export async function createTask(_state: ActionState, formData: FormData): Promi
       projectId: String(formData.get('projectId') ?? '') || null,
       priority: (formData.get('priority') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT') ?? 'MEDIUM',
       energy: (formData.get('energy') as 'LOW' | 'MEDIUM' | 'HIGH') ?? 'MEDIUM',
-      estimateMinutes: Number(formData.get('estimateMinutes') ?? 30),
+      ...(String(formData.get('estimateMinutes') ?? '').trim()
+        ? { estimateMinutes: Number(formData.get('estimateMinutes')) }
+        : {}),
       deadline: deadlineRaw ? new Date(deadlineRaw) : null,
       isSplittable: formData.get('isSplittable') !== 'off',
     });
@@ -826,7 +828,7 @@ export async function commitBraindump(
     const result = await caller.task.commitBraindump({
       items: items.map((item) => ({
         title: item.title,
-        estimateMinutes: item.estimateMinutes ?? 30,
+        ...(item.estimateMinutes !== undefined ? { estimateMinutes: item.estimateMinutes } : {}),
         bucket: item.bucket ?? null,
         priority: item.priority ?? 'MEDIUM',
         dueInDays: item.dueInDays ?? null,
@@ -1054,6 +1056,20 @@ export async function updateFocusRhythm(formData: FormData): Promise<void> {
 
   revalidatePath('/settings');
   revalidatePath('/focus');
+}
+
+/** The estimate used for work nobody estimated. Already-assumed tasks keep theirs. */
+export async function updateDefaultEstimate(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+  const minutes = Math.round(Number(formData.get('defaultEstimateMinutes')));
+  const value = Number.isFinite(minutes) ? Math.min(480, Math.max(5, Math.round(minutes / 5) * 5)) : 30;
+  await prisma.userPreferences.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id, defaultEstimateMinutes: value },
+    update: { defaultEstimateMinutes: value },
+  });
+  revalidatePath('/settings');
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,6 +1322,7 @@ export async function updateCard(formData: FormData) {
         ...(has('notes') ? { notes: field(formData, 'notes') || null } : {}),
         ...(has('priority') ? { priority: field(formData, 'priority') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' } : {}),
         ...(has('estimateMinutes') ? { estimateMinutes: Number(field(formData, 'estimateMinutes')) } : {}),
+        ...(formData.get('confirmEstimate') === '1' ? { confirmEstimate: true } : {}),
         // The calendar date as typed; the router resolves it in the user's zone.
         ...(has('deadline') ? { deadlineDay: field(formData, 'deadline') || null } : {}),
       }),

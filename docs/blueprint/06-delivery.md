@@ -25,14 +25,16 @@ per its own README and code [F1–F6]. This session did not re-run its test suit
 >   - a BullMQ worker with a safety poll and channel renewal
 >
 >   It is tested against a scripted Google API and the real database, but
->   not yet against a live Google account.
+>   not yet against a live Google account. The rest of Phase 2 — a side
+>   calendar on every board, the "estimate assumed" flag, and both timers in
+>   Focus — is in [docs/decisions/0004](../decisions/0004-phase-2-completion.md),
+>   which completes Phase 2.
 >
 > **Still open:**
 > - Phase 1: row-level security moves to Phase 5, with sharing
-> - Phase 2 leftovers: a side calendar on the board, the "estimate assumed" flag, both timers in Focus
 > - Microsoft 365 / Outlook is out of scope
 >
-> 455 unit tests pass.
+> 465 unit tests pass.
 
 ### 21.1 Why the phase order differs from the brief
 

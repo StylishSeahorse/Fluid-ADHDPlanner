@@ -79,6 +79,11 @@ export const planRouter = router({
                 priority: true,
                 timerStartedAt: true,
                 starterStep: true,
+                // Focus mode shows time spent against the estimate, and every
+                // session says when that estimate was only assumed.
+                estimateMinutes: true,
+                estimateAssumed: true,
+                actualMinutes: true,
                 project: { select: { name: true, color: true } },
               },
             },

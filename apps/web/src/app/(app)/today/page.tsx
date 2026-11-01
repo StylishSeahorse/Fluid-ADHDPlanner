@@ -1,3 +1,4 @@
+import { ASSUMED_ESTIMATE_HINT, Estimate } from '@/components/estimate';
 import Link from 'next/link';
 import { expandLabeledRoutines, fromLocal, startOfLocalDay, toLocal } from '@fluid/core';
 import {
@@ -519,6 +520,11 @@ export default async function TodayPage({
                             {block.state === 'PROPOSED' ? (
                               <span className="badge badge-xs badge-soft badge-warning shrink-0">proposed</span>
                             ) : null}
+                            {block.task.estimateAssumed && !completed ? (
+                              <span className="badge badge-xs badge-ghost shrink-0" title={ASSUMED_ESTIMATE_HINT}>
+                                estimate assumed
+                              </span>
+                            ) : null}
                           </div>
                           <p className="text-base-content/50 mt-0.5 text-xs">
                             {formatTime(block.startsAt, timeZone)}–{formatTime(block.endsAt, timeZone)}
@@ -613,7 +619,7 @@ export default async function TodayPage({
                       <div className="min-w-0 grow">
                         <p className="text-sm font-medium">{task.title}</p>
                         <p className="text-base-content/50 mt-0.5 text-xs">
-                          {formatDuration(task.estimateMinutes)}
+                          <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                           {task.project ? ` · ${task.project.name}` : ''}
                         </p>
                       </div>

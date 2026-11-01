@@ -8,6 +8,7 @@ export interface TableRow {
   columnName: string;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   estimateMinutes: number;
+  estimateAssumed?: boolean;
   deadline: Date | null;
   plannedFor: Date | null;
   completedAt: Date | null;

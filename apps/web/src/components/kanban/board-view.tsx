@@ -12,6 +12,7 @@
  * for a round trip before a dropped card lands feels like the drop did not
  * take, which is exactly the doubt this app exists to remove.
  */
+import { Estimate } from '@/components/estimate';
 import Link from 'next/link';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import {
@@ -25,7 +26,7 @@ import {
   updateColumn,
 } from '@/app/actions';
 import { logAction } from '@/components/action-log';
-import { formatDuration, relativeDays } from '@/components/format';
+import { relativeDays } from '@/components/format';
 import {
   CalendarIcon,
   ChatIcon,
@@ -49,6 +50,7 @@ export interface BoardCard {
   title: string;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   estimateMinutes: number;
+  estimateAssumed: boolean;
   deadline: Date | null;
   plannedFor: Date | null;
   completedAt: Date | null;
@@ -96,6 +98,7 @@ export function BoardView({
   timeZone,
   todayKey,
   filtered,
+  linkQuery = '',
 }: {
   boardId: string;
   columns: BoardColumnData[];
@@ -104,6 +107,8 @@ export function BoardView({
   /** The user's local date, for "Today" chips. */
   todayKey: string;
   filtered: boolean;
+  /** Query string kept when a card is opened (the filter, the side calendar), ending in `&`. */
+  linkQuery?: string;
 }) {
   const [columns, setColumns] = useState(initial);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -213,6 +218,7 @@ export function BoardView({
                     <Card
                       card={card}
                       boardId={boardId}
+                      linkQuery={linkQuery}
                       timeZone={timeZone}
                       todayKey={todayKey}
                       dimmed={dragging === card.id}
@@ -293,6 +299,7 @@ function shortDate(instant: Date, timeZone: string): string {
 function Card({
   card,
   boardId,
+  linkQuery,
   timeZone,
   todayKey,
   dimmed,
@@ -302,6 +309,7 @@ function Card({
 }: {
   card: BoardCard;
   boardId: string;
+  linkQuery: string;
   timeZone: string;
   todayKey: string;
   dimmed: boolean;
@@ -369,7 +377,7 @@ function Card({
 
         {/* The whole title opens the card; scroll stays put so the board does not jump. */}
         <Link
-          href={`/boards/${boardId}?card=${card.id}`}
+          href={`/boards/${boardId}?${linkQuery}card=${card.id}`}
           scroll={false}
           className={`min-w-0 grow text-sm font-medium leading-snug after:absolute after:inset-0 after:content-[''] ${
             done ? 'text-base-content/60 line-through' : ''
@@ -395,7 +403,7 @@ function Card({
             {card.priority === 'URGENT' ? 'Urgent' : 'High'}
           </span>
         ) : null}
-        <span>{formatDuration(card.estimateMinutes)}</span>
+        <Estimate minutes={card.estimateMinutes} assumed={card.estimateAssumed} />
         {deadline ? (
           <span
             className={`rounded px-1 ${overdue ? 'bg-error/12 text-error font-semibold' : soon ? 'bg-warning/20 text-warning-content' : ''}`}

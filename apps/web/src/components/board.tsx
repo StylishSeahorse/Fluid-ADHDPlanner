@@ -19,6 +19,8 @@
  * gesture is the difference between planning and not.
  */
 
+import { dayKeyOf, plannedMinutes } from '@/components/day-load';
+import { Estimate } from '@/components/estimate';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { commitTaskToDay, reorderBoardDay } from '@/app/actions';
 import { formatDuration, formatTime, relativeDays } from '@/components/format';
@@ -31,6 +33,7 @@ export interface BoardCard {
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   energy: 'LOW' | 'MEDIUM' | 'HIGH';
   estimateMinutes: number;
+  estimateAssumed: boolean;
   actualMinutes: number;
   deadline: Date | null;
   rolloverCount: number;
@@ -330,31 +333,9 @@ function Column({
   const open = column.tasks.filter((task) => task.status !== 'DONE');
   const done = column.tasks.length - open.length;
 
-  /**
-   * How full this day really is.
-   *
-   * Two sources, and both are needed. `bookedMinutes` is what the scheduler
-   * has actually placed here — which includes work that spilled in from
-   * another day, and excludes work committed here that had to go elsewhere.
-   * On top of that sits anything committed to this day that has no time yet,
-   * counted at its estimate.
-   *
-   * Summing card estimates alone would have shown a comfortable Friday while
-   * three hours of overflow from Monday sat on it; using only the booked total
-   * would leave the bar motionless when a card is dropped, which is the moment
-   * the number is being consulted.
-   */
-  const unplaced = open.filter(
-    (task) => !task.scheduledBlocks.some((block) => dayKeyOf(block.startsAt, timeZone) === column.key),
-  );
-  const planned =
-    column.bookedMinutes +
-    unplaced
-      // Same ledger split the server applies to booked time. Counting an
-      // unplaced errand as work here while the booked version of it is
-      // excluded would make the bar jump the moment the scheduler ran.
-      .filter((task) => task.area?.countsTowardCapacity !== false)
-      .reduce((sum, task) => sum + task.estimateMinutes, 0);
+  // How full this day really is — the formula is shared with the side
+  // calendar on project boards; see day-load.ts for why it has two sources.
+  const planned = plannedMinutes(column.key, column.bookedMinutes, column.tasks, timeZone);
 
   // The denominator is real working time left after meetings and routines.
   // Without working hours there is no honest denominator, so the bar is simply
@@ -595,7 +576,7 @@ function Card({
               <CheckIcon className="size-3" /> done
             </span>
           ) : (
-            <span className="tabular-nums">{formatDuration(task.estimateMinutes)}</span>
+            <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
           )}
 
           {/*
@@ -673,14 +654,6 @@ function isSoon(deadline: Date): boolean {
  * `en-CA` because it is the locale whose short date format *is* ISO order, so
  * this needs no reassembly and cannot disagree with the server's key.
  */
-function dayKeyOf(instant: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone,
-  }).format(instant);
-}
 
 function shortDay(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone }).format(instant);

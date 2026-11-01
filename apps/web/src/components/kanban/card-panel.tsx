@@ -5,6 +5,7 @@
  * back button closes it. The board stays visible behind it on a laptop; on a
  * phone it takes the screen.
  */
+import { ASSUMED_ESTIMATE_HINT } from '@/components/estimate';
 import Link from 'next/link';
 import {
   addChecklistItem,
@@ -210,7 +211,17 @@ function Body({
                   step={5}
                   defaultValue={card.estimateMinutes}
                   className="input input-sm mt-1 w-full"
+                  aria-describedby={card.estimateAssumed ? 'estimate-assumed-note' : undefined}
                 />
+                {card.estimateAssumed ? (
+                  <span id="estimate-assumed-note" className="text-base-content/50 mt-1 block text-[0.68rem]" title={ASSUMED_ESTIMATE_HINT}>
+                    Assumed — your default. Change it, or{' '}
+                    <button type="submit" name="confirmEstimate" value="1" className="link link-primary">
+                      keep it
+                    </button>
+                    .
+                  </span>
+                ) : null}
               </label>
               <label className="text-base-content/60 text-xs">
                 Priority

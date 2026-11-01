@@ -3,8 +3,9 @@
  * as rows. Sorting is a URL parameter, so a sorted table survives a refresh
  * and can be saved as a view.
  */
+import { Estimate } from '@/components/estimate';
 import Link from 'next/link';
-import { formatDuration, relativeDays } from '@/components/format';
+import { relativeDays } from '@/components/format';
 import { CheckIcon } from '@/components/icons';
 import { chipClass } from '@/components/label-colors';
 import { type SortKey, type TableRow } from './card-sort';
@@ -87,7 +88,7 @@ export function CardTable({
                     {row.priority.charAt(0) + row.priority.slice(1).toLowerCase()}
                   </span>
                 </td>
-                <td className="text-base-content/70 whitespace-nowrap">{formatDuration(row.estimateMinutes)}</td>
+                <td className="text-base-content/70 whitespace-nowrap"><Estimate minutes={row.estimateMinutes} assumed={row.estimateAssumed} /></td>
                 <td className={`whitespace-nowrap ${overdue ? 'text-error font-semibold' : 'text-base-content/70'}`}>
                   {row.deadline ? relativeDays(row.deadline) : '—'}
                 </td>

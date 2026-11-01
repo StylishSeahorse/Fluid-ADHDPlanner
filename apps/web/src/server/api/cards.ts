@@ -42,7 +42,12 @@ export const checklistCreate = z.object({ text: z.string().trim().min(1).max(500
 /** A patch as `kanban.updateCard` takes it. */
 export function toUpdateInput(id: string, patch: z.infer<typeof cardPatch>) {
   const { deadline, ...rest } = patch;
-  return { id, ...rest, ...(deadline === undefined ? {} : { deadlineDay: deadline }) };
+  return {
+    id,
+    ...rest,
+    ...(rest.estimateMinutes !== undefined ? { confirmEstimate: true } : {}),
+    ...(deadline === undefined ? {} : { deadlineDay: deadline }),
+  };
 }
 
 interface CardSummaryInput {
@@ -51,6 +56,7 @@ interface CardSummaryInput {
   status: string;
   priority: string;
   estimateMinutes: number;
+  estimateAssumed: boolean;
   deadline: Date | null;
   plannedFor: Date | null;
   completedAt: Date | null;
@@ -72,6 +78,7 @@ export function cardSummary(card: CardSummaryInput, boardId?: string) {
     status: card.status,
     priority: card.priority,
     estimateMinutes: card.estimateMinutes,
+    estimateAssumed: card.estimateAssumed,
     deadline: card.deadline,
     plannedFor: card.plannedFor,
     completedAt: card.completedAt,
@@ -99,6 +106,7 @@ export async function cardDetail(caller: ApiCaller, id: string) {
     status: card.status,
     priority: card.priority,
     estimateMinutes: card.estimateMinutes,
+    estimateAssumed: card.estimateAssumed,
     deadline: card.deadline,
     plannedFor: card.plannedFor,
     completedAt: card.completedAt,

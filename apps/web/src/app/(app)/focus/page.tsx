@@ -40,6 +40,9 @@ export default async function FocusPage() {
       startedAt: block.task.timerStartedAt,
       starterStep: block.task.starterStep,
       projectName: block.task.project?.name ?? null,
+      loggedMinutes: block.task.actualMinutes,
+      estimateMinutes: block.task.estimateMinutes,
+      estimateAssumed: block.task.estimateAssumed,
     })),
     // Only events that actually consume the time. A transparent "FYI" entry on
     // someone's calendar should not push their afternoon around.

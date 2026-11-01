@@ -1,3 +1,4 @@
+import { Estimate } from '@/components/estimate';
 import {
   breakdownTask,
   completeTask,
@@ -175,7 +176,7 @@ export default async function ProjectsPage() {
                     <EnergyBadge energy={task.energy} />
                     <PriorityBadge priority={task.priority} />
                     <span className="badge badge-sm badge-ghost">
-                      {formatDuration(task.estimateMinutes)}
+                      <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                     </span>
                     {task.deadline ? (
                       <span className="badge badge-sm badge-ghost">

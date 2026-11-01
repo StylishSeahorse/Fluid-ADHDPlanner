@@ -60,7 +60,14 @@ export interface DiffContext {
    * to explain individual moves.
    */
   trigger: string;
+  /**
+   * Tasks whose estimate nobody set — the length is the user's default. Their
+   * sessions say so, because "1h on Thursday" reads as a fact otherwise.
+   */
+  assumedEstimates?: ReadonlySet<string>;
 }
+
+const ASSUMED_NOTE = ' Its length is your default estimate, since none was set.';
 
 /** Human-readable cause, from the machine trigger name. */
 export function describeTrigger(trigger: string): string {
@@ -111,6 +118,7 @@ export function diffPlans(
 
   const title = (taskId: string): string => context.taskTitles.get(taskId) ?? 'This task';
   const cause = describeTrigger(context.trigger);
+  const assumed = (taskId: string): string => (context.assumedEstimates?.has(taskId) ? ASSUMED_NOTE : '');
 
   for (const [blockKey, nextBlock] of nextByKey) {
     const previousBlock = previousByKey.get(blockKey);
@@ -123,7 +131,8 @@ export function diffPlans(
         reason:
           `${title(nextBlock.taskId)} is scheduled for ` +
           `${describeMoment(nextBlock.start, context.timeZone, context.now)} ` +
-          `(${describeDuration(durationMinutes(nextBlock))}).`,
+          `(${describeDuration(durationMinutes(nextBlock))}).` +
+          assumed(nextBlock.taskId),
       });
       continue;
     }
@@ -166,7 +175,8 @@ export function diffPlans(
       next: toInterval(nextBlock),
       reason:
         `${title(nextBlock.taskId)} is now ${describeDuration(durationMinutes(nextBlock))} ` +
-        `instead of ${describeDuration(durationMinutes(previousBlock))}.`,
+        `instead of ${describeDuration(durationMinutes(previousBlock))}.` +
+        assumed(nextBlock.taskId),
     });
   }
 

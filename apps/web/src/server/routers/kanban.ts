@@ -26,6 +26,7 @@ import {
 } from '../services/boards';
 import { completeTaskInTx, uncompleteTaskInTx } from '../services/task-lifecycle';
 import { applyTemplate, BUILT_IN_TEMPLATES, resolveTemplate, saveBoardAsTemplate, templateStructure } from '../services/templates';
+import { defaultEstimate, estimateFields } from '../services/estimates';
 import { LABEL_COLORS } from '../../components/label-colors';
 
 const id = z.string().min(1).max(64);
@@ -38,6 +39,7 @@ const cardSelect = {
   status: true,
   priority: true,
   estimateMinutes: true,
+  estimateAssumed: true,
   deadline: true,
   plannedFor: true,
   completedAt: true,
@@ -256,6 +258,7 @@ export const kanbanRouter = router({
         const project = await tx.project.create({ data: { userId: ctx.user.id, name: input.name } });
         const board = await createBoardInTx(tx, { workspaceId, name: input.name, projectId: project.id, defaultColumns: false });
         await applyTemplate(tx, {
+          defaultEstimateMinutes: await defaultEstimate(ctx.user.id, tx),
           userId: ctx.user.id,
           workspaceId,
           boardId: board.id,
@@ -462,6 +465,7 @@ export const kanbanRouter = router({
             columnId: column.id,
             position,
             status,
+            ...(await estimateFields(ctx.user.id, undefined, tx)),
             ...(status === 'DONE' ? { completedAt: now } : {}),
           },
         });
@@ -538,12 +542,18 @@ export const kanbanRouter = router({
          * is the same convention the braindump uses.
          */
         deadlineDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        /**
+         * The estimate shown is the right one, even if it is the default. The
+         * card form sends every field on save, so sending an estimate alone
+         * does not clear "assumed" — changing it, or this, does.
+         */
+        confirmEstimate: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await prisma.$transaction(async (tx) => {
         const task = await loadCard(tx, ctx.user.id, input.id);
-        const { id: _id, deadlineDay, ...rest } = input;
+        const { id: _id, deadlineDay, confirmEstimate, ...rest } = input;
         const timeZone = ctx.user.timeZone;
         const patch = {
           ...rest,
@@ -562,9 +572,14 @@ export const kanbanRouter = router({
             return value !== undefined && normalise(value) !== normalise(before);
           })
           .map(([key]) => key);
-        if (changed.length === 0) return;
+        const settlesEstimate = task.estimateAssumed && (confirmEstimate || changed.includes('estimateMinutes'));
+        if (changed.length === 0 && !settlesEstimate) return;
 
-        await tx.task.update({ where: { id: task.id }, data: { ...patch, lastTouchedAt: new Date() } });
+        await tx.task.update({
+          where: { id: task.id },
+          data: { ...patch, ...(settlesEstimate ? { estimateAssumed: false } : {}), lastTouchedAt: new Date() },
+        });
+        if (changed.length === 0) return;
         if (task.board) {
           const words: Record<string, string> = {
             title: 'title',
@@ -682,7 +697,9 @@ export const kanbanRouter = router({
           title: item.text,
           projectId: item.task.projectId,
           areaId: item.task.areaId,
+          // Small by nature, but nobody said how small: flag it.
           estimateMinutes: 15,
+          estimateAssumed: true,
           status: item.checkedAt ? 'DONE' : 'READY',
           ...(item.checkedAt ? { completedAt: item.checkedAt } : {}),
         },

@@ -6,6 +6,7 @@ import { features } from '@fluid/env';
 import { withFallback } from '@fluid/ai';
 import { localDayOfWeek, parseBraindump, startOfLocalDay } from '@fluid/core';
 import { protectedProcedure, router } from '../trpc';
+import { defaultEstimate, estimateFields } from '../services/estimates';
 import { getAiProvider } from '../services/ai-provider';
 import { categoryFor, completeTaskInTx, uncompleteTaskInTx } from '../services/task-lifecycle';
 import { ensureBoards } from '../services/boards';
@@ -21,7 +22,8 @@ const taskInput = z.object({
   projectId: z.string().cuid().optional().nullable(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
   energy: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
-  estimateMinutes: z.number().int().min(5).max(480).default(30),
+  /** Leave out when unknown: the user's default is used and flagged as assumed. */
+  estimateMinutes: z.number().int().min(5).max(480).optional(),
   deadline: z.coerce.date().optional().nullable(),
   isSplittable: z.boolean().default(true),
   timeBucket: z
@@ -94,7 +96,7 @@ export const taskRouter = router({
         areaId,
         priority: input.priority,
         energy: input.energy,
-        estimateMinutes: input.estimateMinutes,
+        ...(await estimateFields(ctx.user.id, input.estimateMinutes)),
         deadline: input.deadline ?? null,
         isSplittable: input.isSplittable,
         timeBucket: input.timeBucket ?? null,
@@ -164,7 +166,8 @@ export const taskRouter = router({
           .array(
             z.object({
               title: z.string().trim().min(1).max(200),
-              estimateMinutes: z.number().int().min(5).max(480).default(30),
+              /** Absent when the braindump named no duration: the default is used and flagged. */
+              estimateMinutes: z.number().int().min(5).max(480).optional(),
               bucket: timeBucket.nullable().default(null),
               priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
               dueInDays: z.number().int().min(0).max(365).nullable().default(null),
@@ -176,12 +179,14 @@ export const taskRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const timeZone = ctx.user.timeZone;
+      const fallback = await defaultEstimate(ctx.user.id);
 
       const created = await prisma.task.createMany({
         data: input.items.map((item) => ({
           userId: ctx.user.id,
           title: item.title,
-          estimateMinutes: item.estimateMinutes,
+          estimateMinutes: item.estimateMinutes ?? fallback,
+          estimateAssumed: item.estimateMinutes === undefined,
           priority: item.priority,
           timeBucket: item.bucket,
           // End of the named day, not the moment of parsing: "due Friday"
@@ -330,9 +335,19 @@ export const taskRouter = router({
         if (owned === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unknown project.' });
       }
 
+      // The task editor sends every field on every save, so "an estimate was
+      // sent" does not mean "someone chose one". A changed number does.
+      const current = await prisma.task.findFirst({
+        where: { id, userId: ctx.user.id },
+        select: { estimateMinutes: true, estimateAssumed: true },
+      });
+      if (!current) throw new TRPCError({ code: 'NOT_FOUND' });
+      const chosen =
+        current.estimateAssumed && patch.estimateMinutes !== undefined && patch.estimateMinutes !== current.estimateMinutes;
+
       const result = await prisma.task.updateMany({
         where: { id, userId: ctx.user.id },
-        data: { ...patch, lastTouchedAt: new Date() },
+        data: { ...patch, ...(chosen ? { estimateAssumed: false } : {}), lastTouchedAt: new Date() },
       });
       if (result.count === 0) throw new TRPCError({ code: 'NOT_FOUND' });
       return prisma.task.findUniqueOrThrow({ where: { id } });

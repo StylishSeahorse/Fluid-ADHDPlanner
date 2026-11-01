@@ -9,7 +9,10 @@ import { BoardView, type Destination } from '@/components/kanban/board-view';
 import { CardPanel, TrashList } from '@/components/kanban/card-panel';
 import { CardTable, parseSort, sortRows, type TableRow } from '@/components/kanban/card-table';
 import { ViewBar } from '@/components/kanban/view-bar';
-import { ChevronLeftIcon, DotsIcon, SearchIcon } from '@/components/icons';
+import { CalendarShortcut, SideCalendar, type SideCalendarDay } from '@/components/kanban/side-calendar';
+import { dayKeyOf, plannedMinutes } from '@/components/day-load';
+import { formatTime } from '@/components/format';
+import { CalendarIcon, ChevronLeftIcon, DotsIcon, SearchIcon } from '@/components/icons';
 import { getCaller } from '@/server/caller';
 import { requireUser } from '@/server/auth/session';
 
@@ -32,21 +35,24 @@ export default async function BoardPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ q?: string; card?: string; view?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; card?: string; view?: string; sort?: string; cal?: string }>;
 }) {
   const user = await requireUser();
   const caller = await getCaller();
   const { id } = await params;
-  const { q = '', card: cardId, view, sort: sortParam } = await searchParams;
+  const { q = '', card: cardId, view, sort: sortParam, cal } = await searchParams;
   const layout = view === 'table' ? 'table' : 'board';
+  // The side calendar is for dragging cards onto days, so it belongs to the board layout.
+  const showCalendar = cal === '1' && layout === 'board';
 
   const board = await caller.kanban.board({ id, q }).catch(() => null);
   if (!board) notFound();
 
-  const [boards, card, views] = await Promise.all([
+  const [boards, card, views, week] = await Promise.all([
     caller.kanban.boards(),
     cardId ? caller.kanban.card({ id: cardId }) : Promise.resolve(undefined),
     caller.kanban.views({ boardId: board.id }),
+    showCalendar ? caller.board.week({ weekStart: new Date(), includeBacklog: false }) : Promise.resolve(null),
   ]);
 
   const timeZone = user.timeZone;
@@ -68,7 +74,11 @@ export default async function BoardPage({
     if (q) query.set('q', q);
     if (layout === 'table') query.set('view', 'table');
     if (layout === 'table' && sortParam) query.set('sort', sortParam);
-    for (const [key, value] of Object.entries(extra)) query.set(key, value);
+    if (showCalendar) query.set('cal', '1');
+    for (const [key, value] of Object.entries(extra)) {
+      if (value === '') query.delete(key);
+      else query.set(key, value);
+    }
     const text = query.toString();
     return text ? `/boards/${board.id}?${text}` : `/boards/${board.id}`;
   };
@@ -82,6 +92,40 @@ export default async function BoardPage({
         )
       : [];
   const hiddenDone = board.columns.reduce((sum, column) => sum + (column.total - column.cards.length), 0);
+
+  const calendarToggleHref = hrefWith({ cal: showCalendar ? '' : '1', card: '' });
+  const linkQuery = (() => {
+    const text = hrefWith({}).split('?')[1];
+    return text ? `${text}&` : '';
+  })();
+  const weekdayFormat = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' });
+  const dayNumberFormat = new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric', month: 'short' });
+  const calendarDays: SideCalendarDay[] = (week?.days ?? []).map(({ day, shape, tasks }) => {
+    const key = dayKeyOf(day, timeZone);
+    return {
+      key,
+      weekday: weekdayFormat.format(day),
+      dayNumber: dayNumberFormat.format(day),
+      isToday: key === todayKey,
+      capacityMinutes: Math.round(shape.capacity.capacityMinutes),
+      plannedMinutes: Math.round(plannedMinutes(key, shape.capacity.committedMinutes, tasks, timeZone)),
+      meetingMinutes: Math.round(shape.capacity.meetingMinutes),
+      hasWorkingHours: shape.hasWorkingHours,
+      isNonWorkingDay: shape.isNonWorkingDay,
+      cards: tasks.map((task) => {
+        const block = task.scheduledBlocks.find((candidate) => dayKeyOf(candidate.startsAt, timeZone) === key);
+        return {
+          id: task.id,
+          title: task.title,
+          estimateMinutes: task.estimateMinutes,
+          estimateAssumed: task.estimateAssumed,
+          done: task.status === 'DONE',
+          time: block ? formatTime(block.startsAt, timeZone) : null,
+          href: task.boardId === board.id ? hrefWith({ card: task.id }) : task.boardId ? `/boards/${task.boardId}?card=${task.id}` : null,
+        };
+      }),
+    };
+  });
   const open = board.columns.reduce((sum, column) => sum + (column.category === 'DONE' ? 0 : column.total), 0);
 
   return (
@@ -179,7 +223,23 @@ export default async function BoardPage({
         </p>
       ) : null}
 
-      <ViewBar basePath={`/boards/${board.id}`} boardId={board.id} q={q} layout={layout} sort={sortParam} views={views} />
+      <ViewBar basePath={`/boards/${board.id}`} boardId={board.id} q={q} layout={layout} sort={sortParam} views={views}>
+        {layout === 'board' ? (
+          <>
+            <Link
+              href={calendarToggleHref}
+              scroll={false}
+              className={`btn btn-sm gap-1.5 rounded-xl ${showCalendar ? 'btn-primary btn-soft' : 'btn-ghost'}`}
+              aria-pressed={showCalendar}
+              title="Show this week beside the board (C)"
+            >
+              <CalendarIcon className="size-4" /> Calendar
+              <kbd className="kbd kbd-xs hidden sm:inline-flex">C</kbd>
+            </Link>
+            <CalendarShortcut href={calendarToggleHref} />
+          </>
+        ) : null}
+      </ViewBar>
 
       {layout === 'table' ? (
         <>
@@ -201,14 +261,24 @@ export default async function BoardPage({
           ) : null}
         </>
       ) : (
-        <BoardView
-          boardId={board.id}
-          columns={board.columns}
-          destinations={destinations}
-          timeZone={timeZone}
-          todayKey={todayKey}
-          filtered={board.filtered}
-        />
+        <div className={showCalendar ? 'flex flex-col xl:flex-row-reverse xl:items-start xl:gap-4' : ''}>
+          {showCalendar ? <SideCalendar days={calendarDays} closeHref={calendarToggleHref} /> : null}
+          {/*
+            The board bleeds to the page edges on purpose. Beside the calendar
+            it must stop at the calendar instead, or it scrolls underneath it.
+          */}
+          <div className={`min-w-0 xl:grow ${showCalendar ? 'xl:[&>div]:!mr-0 xl:[&>div]:!pr-1' : ''}`}>
+            <BoardView
+              boardId={board.id}
+              columns={board.columns}
+              destinations={destinations}
+              timeZone={timeZone}
+              todayKey={todayKey}
+              filtered={board.filtered}
+              linkQuery={linkQuery}
+            />
+          </div>
+        </div>
       )}
 
       {cardId ? (

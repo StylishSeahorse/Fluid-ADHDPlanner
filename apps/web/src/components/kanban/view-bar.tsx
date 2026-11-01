@@ -16,6 +16,7 @@ export function ViewBar({
   sort,
   views,
   showLayoutSwitch = true,
+  children,
 }: {
   basePath: string;
   boardId: string | null;
@@ -24,6 +25,8 @@ export function ViewBar({
   sort?: string;
   views: Array<{ id: string; name: string; query: string; layout: string }>;
   showLayoutSwitch?: boolean;
+  /** Extra controls at the end of the bar. */
+  children?: React.ReactNode;
 }) {
   const href = (params: { q?: string; view?: string; sort?: string }) => {
     const query = new URLSearchParams();
@@ -97,6 +100,8 @@ export function ViewBar({
           </div>
         </details>
       ) : null}
+
+      {children ? <div className="ml-auto flex items-center gap-2">{children}</div> : null}
     </div>
   );
 }

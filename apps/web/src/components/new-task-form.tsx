@@ -86,7 +86,7 @@ export function NewTaskForm({ projects }: { projects: Array<{ id: string; name: 
                   min={5}
                   max={480}
                   step={5}
-                  defaultValue={30}
+                  placeholder="Not sure? Leave it blank"
                   className="input w-full"
                 />
                 <EstimateHint

@@ -37,7 +37,10 @@ export function ActionForm({
       aria-busy={pending}
       onSubmit={(event) => {
         event.preventDefault();
-        const data = new FormData(event.currentTarget);
+        // With the submitter, so a button's own name/value (e.g. "keep this
+        // estimate") arrives like it would in a native form post.
+        const submitter = event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
+        const data = new FormData(event.currentTarget, submitter);
         start(async () => {
           const result = await action(data);
           if (result && result.error) {

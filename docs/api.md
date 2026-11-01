@@ -133,7 +133,7 @@ In lists (`/cards`, `/boards/:id`):
 ```json
 {
   "id": "…", "title": "Kick-off call", "status": "READY", "priority": "MEDIUM",
-  "estimateMinutes": 60, "deadline": null, "plannedFor": null, "completedAt": null,
+  "estimateMinutes": 60, "estimateAssumed": false, "deadline": null, "plannedFor": null, "completedAt": null,
   "boardId": "…", "columnId": "…", "boardName": "Acme", "columnName": "To do",
   "labels": [{ "id": "…", "name": "client", "color": "sky" }],
   "checklist": { "done": 1, "total": 4 },
@@ -145,6 +145,10 @@ In lists (`/cards`, `/boards/:id`):
 and every write) the card also has `notes`, `createdAt`, `updatedAt`, `board`,
 `column`, `project`, the `checklist` items, `comments`, `attachments` (each with
 a `url` you can fetch while signed in to the app), `subtasks` and `blockedBy`.
+
+`estimateAssumed` is true when nobody gave the card an estimate and
+`estimateMinutes` is the owner's default. Sending `estimateMinutes` in a POST
+or PATCH clears it.
 
 ## Examples
 

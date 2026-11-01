@@ -35,6 +35,10 @@ export interface FlowEntry {
   startedAt: Date | null;
   starterStep: string | null;
   projectName: string | null;
+  /** For tasks: time already logged and the estimate, for the task clock. */
+  loggedMinutes?: number;
+  estimateMinutes?: number;
+  estimateAssumed?: boolean;
 }
 
 export function FlowMode({
@@ -136,6 +140,12 @@ export function FlowMode({
                 taskId={currentEntry.taskId}
                 taskTitle={currentEntry.title}
                 startedAt={currentEntry.startedAt}
+                taskTime={{
+                  loggedMinutes: currentEntry.loggedMinutes ?? 0,
+                  estimateMinutes: currentEntry.estimateMinutes ?? 30,
+                  estimateAssumed: currentEntry.estimateAssumed ?? false,
+                }}
+                rhythm={{ enabled: rhythm.enabled, workMinutes: rhythm.workMinutes }}
               />
 
               {/*

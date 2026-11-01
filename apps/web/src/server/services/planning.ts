@@ -162,6 +162,7 @@ export async function buildPlan(userId: string, trigger: string): Promise<PlanRe
     now,
     taskTitles: titles,
     trigger,
+    assumedEstimates: new Set(tasks.filter((task) => task.estimateAssumed).map((task) => task.id)),
   });
 
   // --- Persist as a proposal ------------------------------------------------

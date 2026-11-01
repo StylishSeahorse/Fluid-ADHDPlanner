@@ -129,6 +129,8 @@ model UserPreferences {
   /// Minutes of breathing room inserted between scheduled blocks. Transitions
   /// cost more for ADHD users than the calendar suggests.
   bufferMinutes      Int @default(10)
+  /// Used for a task nobody estimated, which is then flagged "estimate assumed".
+  defaultEstimateMinutes Int @default(30)
   /// How long a plan diff waits before auto-accepting. 0 disables auto-accept
   /// entirely — some people need the control, others need the decision made.
   autoAcceptSeconds  Int @default(30)
@@ -538,6 +540,12 @@ model Task {
   // --- Time -------------------------------------------------------------------
   /// What the user thinks it will take.
   estimateMinutes         Int  @default(30)
+  /// Nobody gave an estimate: `estimateMinutes` is the user's default. The
+  /// task is still scheduled with it, but every view says so, and finishing it
+  /// does not teach the estimation coach (there was no estimate to check).
+  /// Cleared the moment anyone sets an estimate. Existing tasks start false:
+  /// there is no way to tell, after the fact, which 30s were chosen.
+  estimateAssumed         Boolean @default(false)
   /// What the estimation coach thinks it will take, from this user's own
   /// history. Never overwrites the user's number — shown beside it.
   adjustedEstimateMinutes Int?

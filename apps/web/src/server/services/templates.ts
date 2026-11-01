@@ -34,7 +34,15 @@ export async function resolveTemplate(workspaceId: string, id: string | undefine
 /** Lay a template's columns, labels and cards onto a freshly created, empty board. */
 export async function applyTemplate(
   tx: Tx,
-  input: { userId: string; workspaceId: string; boardId: string; projectId: string | null; areaId: string | null; structure: TemplateStructure },
+  input: {
+    userId: string;
+    workspaceId: string;
+    boardId: string;
+    projectId: string | null;
+    areaId: string | null;
+    structure: TemplateStructure;
+    defaultEstimateMinutes: number;
+  },
 ): Promise<void> {
   const { structure } = input;
   const positions = spreadPositions(structure.columns.length);
@@ -72,7 +80,9 @@ export async function applyTemplate(
         columnId: column.id,
         position,
         status,
-        ...(card.estimateMinutes ? { estimateMinutes: card.estimateMinutes } : {}),
+        ...(card.estimateMinutes
+          ? { estimateMinutes: card.estimateMinutes }
+          : { estimateMinutes: input.defaultEstimateMinutes, estimateAssumed: true }),
         ...(status === 'DONE' ? { completedAt: new Date() } : {}),
       },
     });
@@ -120,7 +130,7 @@ export async function saveBoardAsTemplate(
             column: Math.max(0, columns.findIndex((column) => column.id === task.columnId)),
             labels: task.labels.map(({ label }) => label.name),
             checklist: [...task.checklistItems].sort((a, b) => comparePositions(a.position, b.position)).map((item) => item.text),
-            estimateMinutes: task.estimateMinutes,
+            ...(task.estimateAssumed ? {} : { estimateMinutes: task.estimateMinutes }),
           }))
       : [],
   });

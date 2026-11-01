@@ -129,7 +129,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 455 tests
+npm run verify   # lint + typecheck + 465 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -347,7 +347,7 @@ property that stops a full resync becoming mass data loss.
 full-screen flows, project boards (with files, tables, templates, saved views
 and live updates), a REST API, Google Calendar and CalDAV sync with a
 background worker, the AI calendar agent, and the installable app with push
-notifications work end to end. 455 tests.
+notifications work end to end. 465 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -380,6 +380,14 @@ notifications work end to end. 455 tests.
   (per board and across every board), saved views, five built-in board
   templates plus your own, and live updates — a change in one tab, from the
   API or from a calendar sync shows up in every other open tab
+- A side calendar on every board (`C`): the week beside your columns, with
+  each day's load, so dropping a card on Thursday plans it without leaving
+  the board
+- Work you add without an estimate still gets planned, using your default,
+  and shows as `~30m` everywhere until you set a real number. It never skews
+  the estimation coach
+- Focus mode shows both clocks at once: time until your next break, and the
+  total time on the task against its estimate
 - A REST API with personal access tokens (read only or read & write, with
   expiry and revocation) — see [docs/api.md](docs/api.md)
 - Calendar sync with Google Calendar (OAuth, incremental sync tokens, push

@@ -1,6 +1,6 @@
 import { env, features } from '@fluid/env';
 import { prisma } from '@fluid/db';
-import { setAutonomy, updateAccessibility, updateFocusRhythm, updateTimeZone } from '@/app/actions';
+import { setAutonomy, updateAccessibility, updateDefaultEstimate, updateFocusRhythm, updateTimeZone } from '@/app/actions';
 import { PageHeader, SectionTitle } from '@/components/page-header';
 import { AiProviderForm } from '@/components/ai-provider-form';
 import { Areas } from '@/components/areas';
@@ -105,6 +105,31 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               </select>
               <p className="label text-xs">
                 Working hours, reminders and what counts as &ldquo;today&rdquo; all follow this.
+              </p>
+            </fieldset>
+            <button type="submit" className="btn btn-primary btn-sm mb-6 rounded-xl">
+              Save
+            </button>
+          </div>
+        </form>
+
+        <form action={updateDefaultEstimate} className="card bg-base-100 border-base-200 mb-4 border shadow-sm">
+          <div className="card-body flex-row flex-wrap items-end gap-3">
+            <fieldset className="fieldset min-w-0 grow basis-64">
+              <legend className="fieldset-legend">Default estimate (minutes)</legend>
+              <input
+                type="number"
+                name="defaultEstimateMinutes"
+                min={5}
+                max={480}
+                step={5}
+                defaultValue={preferences?.defaultEstimateMinutes ?? 30}
+                className="input w-full"
+              />
+              <p className="label text-xs whitespace-normal">
+                Used when you add something without saying how long it takes, so it can still be planned. Those
+                tasks show <span className="underline decoration-dotted">~30m</span> until you set a real number, and
+                they never skew your estimate calibration.
               </p>
             </fieldset>
             <button type="submit" className="btn btn-primary btn-sm mb-6 rounded-xl">

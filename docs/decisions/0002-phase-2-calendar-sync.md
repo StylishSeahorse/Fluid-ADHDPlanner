@@ -96,4 +96,4 @@ Status: accepted, 31 October 2026. Context: [blueprint §14](../blueprint/04-syn
 - **A side calendar on the board**, the **"estimate assumed"** flag for tasks
   without an estimate, and **showing the Pomodoro and task timers together** in
   Focus mode. These are planning-UI items, picked up with the rest of Phase 1's
-  remaining work.
+  remaining work. Done since: see [0004](0004-phase-2-completion.md).

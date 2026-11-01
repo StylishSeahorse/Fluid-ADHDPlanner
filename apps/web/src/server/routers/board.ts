@@ -41,7 +41,9 @@ const cardSelect = {
   priority: true,
   energy: true,
   estimateMinutes: true,
+  estimateAssumed: true,
   actualMinutes: true,
+  boardId: true,
   adjustedEstimateMinutes: true,
   deadline: true,
   plannedFor: true,
@@ -116,7 +118,7 @@ export const boardRouter = router({
    * Both are real, and conflating them would hide which is which.
    */
   week: protectedProcedure
-    .input(z.object({ weekStart: z.coerce.date() }))
+    .input(z.object({ weekStart: z.coerce.date(), includeBacklog: z.boolean().default(true) }))
     .query(async ({ ctx, input }) => {
       const timeZone = ctx.user.timeZone;
       const start = startOfLocalDay(input.weekStart, timeZone);
@@ -136,17 +138,20 @@ export const boardRouter = router({
           select: cardSelect,
           orderBy: [{ dayOrder: 'asc' }, { createdAt: 'asc' }],
         }),
-        prisma.task.findMany({
-          where: {
-            userId: ctx.user.id,
-            parentId: null,
-            status: { notIn: ['DONE', 'CANCELLED'] },
-            archivedAt: null,
-            plannedFor: null,
-          },
-          select: cardSelect,
-          orderBy: [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
-        }),
+        // The side calendar on a project board needs only the days.
+        input.includeBacklog
+          ? prisma.task.findMany({
+              where: {
+                userId: ctx.user.id,
+                parentId: null,
+                status: { notIn: ['DONE', 'CANCELLED'] },
+                archivedAt: null,
+                plannedFor: null,
+              },
+              select: cardSelect,
+              orderBy: [{ deadline: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+            })
+          : Promise.resolve([]),
         weekShape(ctx.user.id, days, timeZone),
       ]);
 

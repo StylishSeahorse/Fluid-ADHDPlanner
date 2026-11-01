@@ -45,7 +45,8 @@ export async function completeTaskInTx(
 
   // Feed the estimation coach. Only real observations count — a task
   // completed without any tracked time teaches us nothing.
-  if (task.actualMinutes > 0) {
+  // An assumed estimate was nobody's guess, so there is nothing to calibrate.
+  if (task.actualMinutes > 0 && !task.estimateAssumed) {
     await tx.timeEstimateSample.create({
       data: {
         userId,

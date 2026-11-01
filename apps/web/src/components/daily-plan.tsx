@@ -20,6 +20,7 @@
  * make a decision, because a plan nobody chose is one nobody follows.
  */
 
+import { Estimate } from '@/components/estimate';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -35,6 +36,7 @@ export interface PlanTask {
   id: string;
   title: string;
   estimateMinutes: number;
+  estimateAssumed: boolean;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   deadline: Date | null;
   rolloverCount: number;
@@ -256,7 +258,7 @@ export function DailyPlan({
                     <div className="min-w-0 grow">
                       <p className="text-sm font-medium">{task.title}</p>
                       <p className="text-base-content/45 text-xs">
-                        {formatDuration(task.estimateMinutes)}
+                        <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                         {task.rolloverCount >= 3
                           ? ` · carried forward ${task.rolloverCount} times`
                           : ''}
@@ -363,7 +365,7 @@ export function DailyPlan({
                       <div className="min-w-0 grow">
                         <p className="text-sm font-medium">{task.title}</p>
                         <p className="text-base-content/45 text-xs">
-                          {formatDuration(task.estimateMinutes)}
+                          <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                           {task.project ? ` · ${task.project.name}` : ''}
                         </p>
                       </div>
@@ -393,7 +395,7 @@ export function DailyPlan({
                       <div className="min-w-0 grow">
                         <p className="text-sm">{task.title}</p>
                         <p className="text-base-content/45 text-xs">
-                          {formatDuration(task.estimateMinutes)}
+                          <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                           {task.deadline ? ` · due ${relativeDays(task.deadline)}` : ''}
                           {task.project ? ` · ${task.project.name}` : ''}
                         </p>
@@ -463,7 +465,7 @@ export function DailyPlan({
                     </span>
                     <span className="min-w-0 grow text-sm font-medium">{task.title}</span>
                     <span className="text-base-content/45 shrink-0 text-xs">
-                      {formatDuration(task.estimateMinutes)}
+                      <Estimate minutes={task.estimateMinutes} assumed={task.estimateAssumed} />
                     </span>
                   </li>
                 ))}
