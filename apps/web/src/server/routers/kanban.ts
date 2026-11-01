@@ -25,6 +25,7 @@ import {
   trashCard,
 } from '../services/boards';
 import { completeTaskInTx, uncompleteTaskInTx } from '../services/task-lifecycle';
+import { applyTemplate, BUILT_IN_TEMPLATES, resolveTemplate, saveBoardAsTemplate, templateStructure } from '../services/templates';
 import { LABEL_COLORS } from '../../components/label-colors';
 
 const id = z.string().min(1).max(64);
@@ -44,7 +45,7 @@ const cardSelect = {
   columnId: true,
   labels: { select: { label: { select: { id: true, name: true, color: true } } } },
   checklistItems: { select: { checkedAt: true } },
-  _count: { select: { comments: true, subtasks: true } },
+  _count: { select: { comments: true, subtasks: true, attachments: true } },
   blockedBy: { select: { prerequisite: { select: { completedAt: true } } } },
   scheduledBlocks: {
     where: { state: { in: ['PROPOSED', 'ACCEPTED'] as ('PROPOSED' | 'ACCEPTED')[] } },
@@ -62,7 +63,7 @@ function toCard<T extends {
   checklistItems: Array<{ checkedAt: Date | null }>;
   blockedBy: Array<{ prerequisite: { completedAt: Date | null } }>;
   scheduledBlocks: Array<{ startsAt: Date; state: string }>;
-  _count: { comments: number; subtasks: number };
+  _count: { comments: number; subtasks: number; attachments: number };
 }>(task: T) {
   const { labels, checklistItems, blockedBy, scheduledBlocks, _count, ...rest } = task;
   return {
@@ -70,6 +71,7 @@ function toCard<T extends {
     labels: labels.map((entry) => entry.label),
     checklist: { done: checklistItems.filter((item) => item.checkedAt).length, total: checklistItems.length },
     commentCount: _count.comments,
+    attachmentCount: _count.attachments,
     subtaskCount: _count.subtasks,
     blocked: blockedBy.some((dependency) => dependency.prerequisite.completedAt === null),
     nextSession: scheduledBlocks[0] ?? null,
@@ -161,33 +163,106 @@ export const kanbanRouter = router({
       };
     }),
 
-  /** Search every board at once, with the same grammar as the board filter. */
-  search: protectedProcedure.input(z.object({ q: z.string().max(500) })).query(async ({ ctx, input }) => {
-    if (!input.q.trim()) return [];
-    await ensureBoards(ctx.user.id);
-    const tasks = await prisma.task.findMany({
-      where: cardWhere(parseCardQuery(input.q), ctx.user.id, ctx.user.timeZone),
-      select: {
-        ...cardSelect,
-        board: { select: { id: true, name: true } },
-        column: { select: { name: true } },
-      },
-      orderBy: [{ completedAt: { sort: 'asc', nulls: 'first' } }, { deadline: { sort: 'asc', nulls: 'last' } }],
-      take: 100,
+  /**
+   * Search every board at once, with the same grammar as the board filter.
+   * An empty query lists every open card — the cross-board table's default.
+   */
+  search: protectedProcedure
+    .input(z.object({ q: z.string().max(500), limit: z.number().int().min(1).max(500).default(200) }))
+    .query(async ({ ctx, input }) => {
+      await ensureBoards(ctx.user.id);
+      const text = input.q.trim() || '-status:done';
+      const tasks = await prisma.task.findMany({
+        where: cardWhere(parseCardQuery(text), ctx.user.id, ctx.user.timeZone),
+        select: {
+          ...cardSelect,
+          updatedAt: true,
+          board: { select: { id: true, name: true } },
+          column: { select: { name: true } },
+        },
+        orderBy: [{ completedAt: { sort: 'asc', nulls: 'first' } }, { deadline: { sort: 'asc', nulls: 'last' } }],
+        take: input.limit,
+      });
+      return tasks.map((task) => ({ ...toCard(task), board: task.board, column: task.column }));
+    }),
+
+  // --- Saved views ------------------------------------------------------------
+
+  /** Views for one board, or (boardId null) the cross-board ones. */
+  views: protectedProcedure.input(z.object({ boardId: id.nullable() })).query(async ({ ctx, input }) => {
+    return prisma.savedView.findMany({
+      where: { userId: ctx.user.id, boardId: input.boardId },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, query: true, layout: true },
     });
-    return tasks.map((task) => ({ ...toCard(task), board: task.board, column: task.column }));
+  }),
+
+  saveView: protectedProcedure
+    .input(
+      z.object({
+        boardId: id.nullable(),
+        name: z.string().trim().min(1).max(60),
+        query: z.string().max(500),
+        layout: z.enum(['board', 'table']).default('board'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId } = await ensureBoards(ctx.user.id);
+      if (input.boardId) await loadBoard(prisma, ctx.user.id, input.boardId);
+      // Same name on the same board replaces, rather than piling up duplicates.
+      const existing = await prisma.savedView.findFirst({
+        where: { userId: ctx.user.id, boardId: input.boardId, name: input.name },
+      });
+      if (existing) {
+        return prisma.savedView.update({ where: { id: existing.id }, data: { query: input.query, layout: input.layout } });
+      }
+      return prisma.savedView.create({ data: { workspaceId, userId: ctx.user.id, ...input } });
+    }),
+
+  deleteView: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {
+    await prisma.savedView.deleteMany({ where: { id: input.id, userId: ctx.user.id } });
   }),
 
   // --- Boards ---------------------------------------------------------------
 
   /** A new board is a new project with its board — one name, one step. */
+  /** Starting points for a new board: the built-in ones, then any you saved. */
+  templates: protectedProcedure.query(async ({ ctx }) => {
+    const { workspaceId } = await ensureBoards(ctx.user.id);
+    const saved = await prisma.boardTemplate.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } });
+    return {
+      builtIn: BUILT_IN_TEMPLATES.map((template) => ({
+        id: `builtin:${template.key}`,
+        name: template.name,
+        description: template.description,
+        columns: template.structure.columns.map((column) => column.name),
+      })),
+      saved: saved.map((template) => ({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        columns: templateStructure.safeParse(template.structure).data?.columns.map((column) => column.name) ?? [],
+      })),
+    };
+  }),
+
+  /** A new board is a new project with its board — one name, one step — shaped by a template. */
   createBoard: protectedProcedure
-    .input(z.object({ name: z.string().trim().min(1).max(120) }))
+    .input(z.object({ name: z.string().trim().min(1).max(120), templateId: z.string().max(64).optional() }))
     .mutation(async ({ ctx, input }) => {
       const { workspaceId } = await ensureBoards(ctx.user.id);
+      const structure = await resolveTemplate(workspaceId, input.templateId);
       return prisma.$transaction(async (tx) => {
         const project = await tx.project.create({ data: { userId: ctx.user.id, name: input.name } });
-        const board = await createBoardInTx(tx, { workspaceId, name: input.name, projectId: project.id });
+        const board = await createBoardInTx(tx, { workspaceId, name: input.name, projectId: project.id, defaultColumns: false });
+        await applyTemplate(tx, {
+          userId: ctx.user.id,
+          workspaceId,
+          boardId: board.id,
+          projectId: project.id,
+          areaId: project.areaId,
+          structure,
+        });
         await logActivity(tx, {
           workspaceId,
           boardId: board.id,
@@ -198,6 +273,22 @@ export const kanbanRouter = router({
         return { id: board.id };
       });
     }),
+
+  saveTemplate: protectedProcedure
+    .input(
+      z.object({
+        boardId: id,
+        name: z.string().trim().min(1).max(80),
+        description: z.string().trim().max(300).optional(),
+        includeCards: z.boolean().default(false),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => saveBoardAsTemplate(ctx.user.id, input)),
+
+  deleteTemplate: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {
+    const { workspaceId } = await ensureBoards(ctx.user.id);
+    await prisma.boardTemplate.deleteMany({ where: { id: input.id, workspaceId } });
+  }),
 
   renameBoard: protectedProcedure
     .input(z.object({ id, name: z.string().trim().min(1).max(120) }))
@@ -403,6 +494,10 @@ export const kanbanRouter = router({
         labels: { select: { label: true } },
         checklistItems: true,
         comments: { orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, email: true } } } },
+        attachments: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, filename: true, contentType: true, sizeBytes: true, createdAt: true },
+        },
         subtasks: { orderBy: { createdAt: 'asc' }, select: { id: true, title: true, status: true, estimateMinutes: true } },
         blockedBy: { select: { prerequisite: { select: { id: true, title: true, completedAt: true } } } },
         scheduledBlocks: {

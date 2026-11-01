@@ -66,6 +66,9 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_WEBHOOK_URL: ${GOOGLE_WEBHOOK_URL:-}
+      # Card attachments. A volume, so files outlive the container.
+      STORAGE_DIR: /data/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
     ports:
       - "3030:3030"
     # Sign-in credentials for the CLI providers, minted inside the container by
@@ -78,11 +81,13 @@ services:
     #   docker compose exec -u nextjs web claude auth login
     #   docker compose exec -u nextjs web codex login --device-auth
     volumes:
+      - fluid-uploads:/data/uploads
       - fluid-claude-auth:/home/nextjs/.claude
       - fluid-codex-auth:/home/nextjs/.codex
 
 volumes:
   fluid-pgdata:
   fluid-redisdata:
+  fluid-uploads:
   fluid-claude-auth:
   fluid-codex-auth:

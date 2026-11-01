@@ -18,6 +18,7 @@
  *   4. EVERY CHANGE IS LOGGED in `activity_events`, in words, by whoever did it.
  */
 import 'server-only';
+import { removeObject } from './storage';
 import { TRPCError } from '@trpc/server';
 import { prisma, type Prisma, type ColumnCategory, type TaskStatus } from '@fluid/db';
 import {
@@ -103,7 +104,14 @@ async function lastBoardPosition(tx: Tx, workspaceId: string): Promise<string | 
 
 export async function createBoardInTx(
   tx: Tx,
-  input: { workspaceId: string; name: string; projectId?: string | null; isInbox?: boolean },
+  input: {
+    workspaceId: string;
+    name: string;
+    projectId?: string | null;
+    isInbox?: boolean;
+    /** False when a template will add its own columns. */
+    defaultColumns?: boolean;
+  },
 ) {
   const positions = spreadPositions(DEFAULT_COLUMNS.length);
   return tx.board.create({
@@ -113,13 +121,17 @@ export async function createBoardInTx(
       projectId: input.projectId ?? null,
       isInbox: input.isInbox ?? false,
       position: positionBetween(await lastBoardPosition(tx, input.workspaceId), null),
-      columns: {
-        create: DEFAULT_COLUMNS.map((column, index) => ({
-          name: column.name,
-          category: column.category,
-          position: positions[index]!,
-        })),
-      },
+      ...(input.defaultColumns === false
+        ? {}
+        : {
+            columns: {
+              create: DEFAULT_COLUMNS.map((column, index) => ({
+                name: column.name,
+                category: column.category,
+                position: positions[index]!,
+              })),
+            },
+          }),
     },
     include: { columns: true },
   });
@@ -429,11 +441,14 @@ export async function trashCard(userId: string, taskId: string): Promise<void> {
     const task = await loadCard(tx, userId, taskId);
     if (!task.board) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only cards on a board can be trashed.' });
 
-    const [subtasks, checklist, comments, labels] = await Promise.all([
+    const [subtasks, checklist, comments, labels, attachments] = await Promise.all([
       tx.task.findMany({ where: { parentId: task.id } }),
       tx.checklistItem.findMany({ where: { taskId: task.id } }),
       tx.comment.findMany({ where: { taskId: task.id } }),
       tx.taskLabel.findMany({ where: { taskId: task.id } }),
+      // The rows go with the card; the files stay on disk until the trash is
+      // emptied, so a restore brings them back too.
+      tx.attachment.findMany({ where: { taskId: task.id } }),
     ]);
 
     const { board: _board, column: _column, ...row } = task;
@@ -445,7 +460,7 @@ export async function trashCard(userId: string, taskId: string): Promise<void> {
         title: task.title,
         trashedById: userId,
         snapshot: JSON.parse(
-          JSON.stringify({ task: row, subtasks, checklist, comments, labelIds: labels.map((l) => l.labelId) }),
+          JSON.stringify({ task: row, subtasks, checklist, comments, attachments, labelIds: labels.map((l) => l.labelId) }),
         ) as Prisma.InputJsonValue,
       },
     });
@@ -468,6 +483,8 @@ type Snapshot = {
   subtasks: Array<Record<string, unknown>>;
   checklist: Array<Record<string, unknown>>;
   comments: Array<Record<string, unknown>>;
+  /** Absent in snapshots taken before attachments existed. */
+  attachments?: Array<Record<string, unknown>>;
   labelIds: string[];
 };
 
@@ -535,6 +552,11 @@ export async function restoreCard(userId: string, trashedId: string): Promise<{ 
       const authorExists = row.authorId ? await tx.user.findUnique({ where: { id: row.authorId } }) : null;
       await tx.comment.create({ data: { ...row, authorId: authorExists ? row.authorId : null } });
     }
+    for (const attachment of snapshot.attachments ?? []) {
+      const row = revive(attachment) as unknown as Prisma.AttachmentUncheckedCreateInput;
+      const uploaderExists = row.uploaderId ? await tx.user.findUnique({ where: { id: row.uploaderId } }) : null;
+      await tx.attachment.create({ data: { ...row, uploaderId: uploaderExists ? row.uploaderId : null } });
+    }
     const labels = await tx.label.findMany({ where: { id: { in: snapshot.labelIds }, workspaceId: entry.workspaceId } });
     if (labels.length > 0) {
       await tx.taskLabel.createMany({ data: labels.map((label) => ({ taskId: entry.taskId, labelId: label.id })) });
@@ -557,7 +579,14 @@ export async function restoreCard(userId: string, trashedId: string): Promise<{ 
 /** Forget trash older than the retention window. Called lazily on read. */
 export async function purgeOldTrash(workspaceId: string): Promise<void> {
   const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60_000);
-  await prisma.trashedCard.deleteMany({ where: { workspaceId, trashedAt: { lt: cutoff } } });
+  const expired = await prisma.trashedCard.findMany({ where: { workspaceId, trashedAt: { lt: cutoff } } });
+  for (const entry of expired) {
+    // Gone for good now: the files can go too.
+    for (const attachment of (entry.snapshot as unknown as Snapshot).attachments ?? []) {
+      if (typeof attachment.storageKey === 'string') await removeObject(attachment.storageKey).catch(() => {});
+    }
+    await prisma.trashedCard.delete({ where: { id: entry.id } });
+  }
 }
 
 // ---------------------------------------------------------------------------

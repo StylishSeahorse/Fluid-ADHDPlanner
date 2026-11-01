@@ -2,8 +2,11 @@ import Link from 'next/link';
 import { PageHeader, SectionTitle } from '@/components/page-header';
 import { NewBoardForm } from '@/components/kanban/new-board-form';
 import { relativeDays } from '@/components/format';
-import { BoardIcon, SearchIcon } from '@/components/icons';
-import { chipClass } from '@/components/label-colors';
+import { BoardIcon, ListIcon, SearchIcon, XIcon } from '@/components/icons';
+import { deleteBoardTemplate } from '@/app/actions';
+import { LoggedActionButton } from '@/components/action-log';
+import { CardTable, parseSort, sortRows } from '@/components/kanban/card-table';
+import { ViewBar } from '@/components/kanban/view-bar';
 import { getCaller } from '@/server/caller';
 import { requireUser } from '@/server/auth/session';
 
@@ -17,13 +20,35 @@ export const metadata = { title: 'Boards' };
  * Boards answer "where is this work in its workflow?". Which *day* it happens
  * on is a separate decision, made from any card ("Plan for…") or on the Week
  * board — the two never fight over one field.
+ *
+ * A search, or `?view=table`, shows matching cards from every board as one
+ * sortable table; with no search that is every open card.
  */
-export default async function BoardsPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  await requireUser();
+export default async function BoardsPage({ searchParams }: { searchParams: Promise<{ q?: string; view?: string; sort?: string }> }) {
+  const user = await requireUser();
   const caller = await getCaller();
-  const q = ((await searchParams).q ?? '').trim();
+  const params = await searchParams;
+  const q = (params.q ?? '').trim();
+  const showTable = Boolean(q) || params.view === 'table';
 
-  const [boards, results] = await Promise.all([caller.kanban.boards(), q ? caller.kanban.search({ q }) : []]);
+  const [boards, results, templates, views] = await Promise.all([
+    caller.kanban.boards(),
+    showTable ? caller.kanban.search({ q }) : [],
+    caller.kanban.templates(),
+    caller.kanban.views({ boardId: null }),
+  ]);
+  const sort = parseSort(params.sort);
+  const rows = sortRows(
+    results.map((card) => ({ ...card, boardId: card.board?.id ?? '', boardName: card.board?.name ?? '', columnName: card.column?.name ?? '' })),
+    sort,
+  );
+  const tableHref = (extra: Record<string, string>) => {
+    const query = new URLSearchParams({ view: 'table' });
+    if (q) query.set('q', q);
+    if (params.sort) query.set('sort', params.sort);
+    for (const [key, value] of Object.entries(extra)) query.set(key, value);
+    return `/boards?${query.toString()}`;
+  };
   const active = boards.filter((board) => !board.archivedAt);
   const archived = boards.filter((board) => board.archivedAt);
 
@@ -49,6 +74,7 @@ export default async function BoardsPage({ searchParams }: { searchParams: Promi
                 aria-label="Search every board"
               />
             </label>
+            <input type="hidden" name="view" value="table" />
             <p className="text-base-content/50 text-xs">
               Try <code>label:client</code> <code>due:week</code> <code>-status:done</code>{' '}
               <code>planned:none</code> <code>priority:&gt;=high</code>
@@ -58,44 +84,72 @@ export default async function BoardsPage({ searchParams }: { searchParams: Promi
 
         <div className="card bg-base-100 border-base-200 border shadow-sm">
           <div className="card-body p-4">
-            <NewBoardForm />
+            <NewBoardForm templates={templates} />
+            {templates.saved.length > 0 ? (
+              <details className="mt-1">
+                <summary className="text-base-content/50 cursor-pointer text-xs">Manage your templates</summary>
+                <ul className="mt-2 space-y-1">
+                  {templates.saved.map((template) => (
+                    <li key={template.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="min-w-0 truncate">
+                        {template.name} <span className="text-base-content/40 text-xs">{template.columns.join(' · ')}</span>
+                      </span>
+                      <LoggedActionButton
+                        action={deleteBoardTemplate}
+                        fields={{ id: template.id }}
+                        successMessage={`Deleted the template “${template.name}”.`}
+                        className="btn btn-ghost btn-xs btn-square rounded-lg"
+                      >
+                        <XIcon className="size-3" />
+                        <span className="sr-only">Delete template {template.name}</span>
+                      </LoggedActionButton>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </div>
         </div>
       </div>
 
-      {q ? (
-        <>
-          <SectionTitle>
-            {results.length === 0 ? 'No cards match' : `${results.length} card${results.length === 1 ? '' : 's'} match`}
-          </SectionTitle>
-          {results.length > 0 ? (
-            <ul className="card bg-base-100 border-base-200 divide-base-200 mb-8 divide-y border shadow-sm">
-              {results.map((card) => (
-                <li key={card.id}>
-                  <Link
-                    href={`/boards/${card.board?.id}?card=${card.id}`}
-                    className="hover:bg-base-200/50 flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
-                  >
-                    <span className={`min-w-0 grow text-sm font-medium ${card.completedAt ? 'text-base-content/50 line-through' : ''}`}>
-                      {card.title}
-                    </span>
-                    {card.labels.map((label) => (
-                      <span key={label.id} className={`rounded-md px-1.5 py-0.5 text-[0.65rem] font-semibold ${chipClass(label.color)}`}>
-                        {label.name}
-                      </span>
-                    ))}
-                    <span className="text-base-content/50 text-xs">
-                      {card.board?.name} › {card.column?.name}
-                      {card.deadline ? ` · due ${relativeDays(card.deadline)}` : ''}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-base-content/55 mb-8 text-sm">Nothing on any board matches “{q}”.</p>
-          )}
-        </>
+      {!showTable ? (
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <Link href="/boards?view=table" className="btn btn-ghost btn-sm gap-1.5 rounded-xl">
+            <ListIcon className="size-4" /> Every open card as a table
+          </Link>
+          {views.map((view) => (
+            <Link key={view.id} href={`/boards?view=table${view.query ? `&q=${encodeURIComponent(view.query)}` : ''}`} className="btn btn-outline btn-xs rounded-lg">
+              {view.name}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {showTable ? (
+        <section className="mb-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <SectionTitle>
+              {q
+                ? results.length === 0
+                  ? 'No cards match'
+                  : `${results.length} card${results.length === 1 ? '' : 's'} match`
+                : `${results.length} open card${results.length === 1 ? '' : 's'} on every board`}
+            </SectionTitle>
+            <Link href="/boards" className="link link-hover text-base-content/55 text-xs">
+              Close table
+            </Link>
+          </div>
+          <ViewBar basePath="/boards" boardId={null} q={q} layout="table" sort={params.sort} views={views} showLayoutSwitch={false} />
+          <CardTable
+            rows={rows}
+            sort={sort}
+            hrefFor={(next) => tableHref({ sort: next })}
+            cardHref={(row) => `/boards/${row.boardId}?card=${row.id}`}
+            timeZone={user.timeZone}
+            showBoard
+          />
+          {results.length >= 200 ? <p className="text-base-content/45 mt-2 text-xs">Showing the first 200. Narrow the search to see the rest.</p> : null}
+        </section>
       ) : null}
 
       <SectionTitle>Your boards</SectionTitle>

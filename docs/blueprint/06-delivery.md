@@ -8,13 +8,15 @@ per its own README and code [F1–F6]. This session did not re-run its test suit
 
 ## 21. MVP scope and phased roadmap
 
-> **Progress (31 October 2026).**
+> **Progress (1 November 2026).**
 >
 > - **Phase 0** is done: decisions are in [docs/decisions/0001](../decisions/0001-phase-0-and-1.md).
-> - **Phase 1** is in place as a working slice: workspaces, project boards with
->   custom columns, cards with labels, checklist, comments and history,
->   drag-and-drop plus "Move to…", completion independent of columns, 30-day
->   trash, and search.
+> - **Phase 1** is done: workspaces, project boards with custom columns, cards
+>   with labels, checklist, comments, attachments and history, drag-and-drop
+>   plus "Move to…", completion independent of columns, 30-day trash, search,
+>   a Table view, saved views, board templates, live updates between tabs, and
+>   a REST API with personal access tokens. The last six are recorded in
+>   [docs/decisions/0003](../decisions/0003-phase-1-completion.md).
 > - **Phase 2** is in place, recorded in [docs/decisions/0002](../decisions/0002-phase-2-calendar-sync.md):
 >   - a Google Calendar adapter and sign-in, and one sync engine for Google and CalDAV
 >   - recurring meetings expanded into busy time
@@ -26,10 +28,11 @@ per its own README and code [F1–F6]. This session did not re-run its test suit
 >   not yet against a live Google account.
 >
 > **Still open:**
-> - Phase 1 leftovers: attachments, Table view, templates, real-time updates, REST v1, saved views
-> - Phase 2 leftovers: Microsoft 365, a side calendar on the board, the "estimate assumed" flag, both timers in Focus
+> - Phase 1: row-level security moves to Phase 5, with sharing
+> - Phase 2 leftovers: a side calendar on the board, the "estimate assumed" flag, both timers in Focus
+> - Microsoft 365 / Outlook is out of scope
 >
-> 443 unit tests pass.
+> 455 unit tests pass.
 
 ### 21.1 Why the phase order differs from the brief
 

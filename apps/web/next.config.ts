@@ -21,7 +21,8 @@ const config: NextConfig = {
   // so it must be required from node_modules rather than bundled.
   serverExternalPackages: ['@prisma/client', '@node-rs/argon2', 'bullmq', 'ioredis'],
   experimental: {
-    // Server Actions receive user input; keep the body bound small.
+    // Server Actions receive user input; keep the body bound small. Attachments
+    // go through their own route handler, which streams.
     serverActions: { bodySizeLimit: '1mb' },
   },
   async headers() {
@@ -42,6 +43,14 @@ const config: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+      {
+        // Every page except attachment downloads, which send a stricter policy
+        // of their own (sandboxed, no scripts at all). A second CSP header would
+        // not replace that one — Next keeps the config's — so they are kept apart.
+        source: '/:path((?!api/attachments/).*)',
+        headers: [
           {
             // No external origins at all: this app loads nothing it did not
             // build, which makes a stray script tag a load failure rather than

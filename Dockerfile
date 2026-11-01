@@ -88,8 +88,10 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex \
 # sees the session. Compose mounts volumes here so a login survives a rebuild.
 ENV CLAUDE_CONFIG_DIR=/home/nextjs/.claude \
     CODEX_HOME=/home/nextjs/.codex
-RUN mkdir -p "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" \
-  && chown -R nextjs:nodejs /home/nextjs
+# /data/uploads is where attachments go (STORAGE_DIR). Created here and owned
+# by the app user, so a fresh named volume mounted over it inherits that owner.
+RUN mkdir -p "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" /data/uploads \
+  && chown -R nextjs:nodejs /home/nextjs /data
 
 # `output: standalone`'s tracing runs from the repo root, so it mirrors the
 # monorepo's own layout: the server lands at apps/web/server.js inside the

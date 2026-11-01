@@ -5,6 +5,7 @@ import { requireUser } from '@/server/auth/session';
 import { ActionLogPanel } from '@/components/action-log';
 import { DockLink, SidebarLink, type NavItem } from '@/components/nav';
 import { InstallAppButton } from '@/components/pwa/install-button';
+import { LiveRefresh } from '@/components/live-refresh';
 import {
   BoardIcon,
   CalendarIcon,
@@ -124,6 +125,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         someone who cannot otherwise tell whether their tap registered.
       */}
       <ActionLogPanel />
+      {/* Changes made in another tab or on another device appear here too. */}
+      <LiveRefresh />
 
       <div className="drawer-side z-40">
         <label htmlFor="app-drawer" aria-label="Close menu" className="drawer-overlay" />

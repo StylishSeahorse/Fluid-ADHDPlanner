@@ -50,7 +50,7 @@ Three things this gets right that a to-do list cannot:
 |---|---|---|
 | **Today** | What am I doing now? | The day as a list beside the day as a timeline, plus the rituals that bracket it |
 | **Week** | Which day does this belong to? | Board, Calendar and Agenda are *lenses* on one page — same seven days, three readings |
-| **Boards** | Where is this work in its project? | Kanban boards with your own columns, labels, checklists, comments and history; plan any card into a day from the card |
+| **Boards** | Where is this work in its project? | Kanban boards with your own columns, labels, checklists, comments, files and history, as a board or a table; templates and saved views; plan any card into a day from the card |
 | **Tasks** | What exists at all? | Backlog by horizon, projects, braindump capture |
 | **Review** | How did that go? | Objectives, estimate calibration, where the time went, what the AI did |
 | **Settings** | How should this behave? | Accessibility, areas, routines, focus rhythm, AI autonomy and provider, calendars |
@@ -129,7 +129,7 @@ Postgres listens on **5433** and Redis on **6380** — non-default, so they do n
 collide with anything already running locally.
 
 ```bash
-npm run verify   # lint + typecheck + 443 tests
+npm run verify   # lint + typecheck + 455 tests
 ```
 
 **AI is optional.** With no provider configured the deterministic scheduler runs
@@ -251,6 +251,21 @@ What syncs, and which way:
 | You delete a Fluid block in Google | That session is removed in Fluid and not put back |
 | Google revokes access | Syncing pauses with the reason in Settings; nothing is deleted. Reconnect to resume |
 
+## Files and the API
+
+**Attachments** are stored on disk in `STORAGE_DIR` (default `data/uploads`,
+up to `MAX_UPLOAD_MB` each). Docker Compose mounts the `fluid-uploads` volume
+there, so files survive rebuilds; back it up along with the database.
+
+**The REST API** lets scripts read and change your boards. Make a token in
+**Settings → API tokens**, then:
+
+```bash
+curl -H "Authorization: Bearer fluid_pat_…" https://fluid.example.com/api/v1/cards?q=due:week
+```
+
+The full reference is in [docs/api.md](docs/api.md).
+
 ---
 
 ## How it is built
@@ -329,9 +344,10 @@ property that stops a full resync becoming mass data loss.
 ## Status
 
 **Running.** Auth, tasks and projects, the scheduler, all five screens, both
-full-screen flows, project boards, Google Calendar and CalDAV sync with a
+full-screen flows, project boards (with files, tables, templates, saved views
+and live updates), a REST API, Google Calendar and CalDAV sync with a
 background worker, the AI calendar agent, and the installable app with push
-notifications work end to end. 443 tests.
+notifications work end to end. 455 tests.
 
 <details>
 <summary><b>What works</b></summary>
@@ -360,6 +376,12 @@ notifications work end to end. 443 tests.
   trash with restore, and a search grammar shared by every filter box
   (`label:client due:week -status:done`). A card is the same task row Today
   and Week show — completing it anywhere moves it to Done
+- On boards, too: file attachments with image previews, a sortable Table view
+  (per board and across every board), saved views, five built-in board
+  templates plus your own, and live updates — a change in one tab, from the
+  API or from a calendar sync shows up in every other open tab
+- A REST API with personal access tokens (read only or read & write, with
+  expiry and revocation) — see [docs/api.md](docs/api.md)
 - Calendar sync with Google Calendar (OAuth, incremental sync tokens, push
   notifications, idempotent writes) and any CalDAV server, through one engine:
   meetings — recurring series included — become busy time; accepted blocks
@@ -381,10 +403,10 @@ notifications work end to end. 443 tests.
   and its error path has talked to Google's real endpoints — but no OAuth
   client was available to sign in for real. Expect small surprises on first
   contact (see docs/decisions/0002)
-- Microsoft 365 / Outlook calendars
+- Microsoft 365 / Outlook calendars (out of scope)
 - Body doubling, Gantt view, task import
-- On boards: attachments, a table view, board templates, live updates between
-  open tabs, and sharing a workspace with other people
+- Sharing a workspace with other people
+- Uploading attachments through the API, and outgoing webhooks
 - Booking links, an AI notetaker, and Slack/Teams delivery of the daily summary
   (it copies to the clipboard instead)
 - AI settings toggles are enforced server-side but not yet editable in the UI

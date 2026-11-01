@@ -63,6 +63,9 @@ model User {
   memberships         WorkspaceMember[]
   comments            Comment[]
   activity            ActivityEvent[]
+  attachments         Attachment[]
+  savedViews          SavedView[]
+  apiTokens           ApiToken[]
 
   @@map("users")
 }
@@ -631,6 +634,7 @@ model Task {
   labels         TaskLabel[]
   checklistItems ChecklistItem[]
   comments       Comment[]
+  attachments    Attachment[]
 
   @@index([userId, status])
   @@index([userId, deadline])
@@ -1361,11 +1365,13 @@ model Workspace {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  members  WorkspaceMember[]
-  boards   Board[]
-  labels   Label[]
-  activity ActivityEvent[]
-  trash    TrashedCard[]
+  members   WorkspaceMember[]
+  boards    Board[]
+  labels    Label[]
+  activity  ActivityEvent[]
+  trash     TrashedCard[]
+  templates BoardTemplate[]
+  views     SavedView[]
 
   @@map("workspaces")
 }
@@ -1403,6 +1409,7 @@ model Board {
   project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   columns   BoardColumn[]
   tasks     Task[]
+  views     SavedView[]
 
   @@index([workspaceId, position])
   @@map("boards")
@@ -1545,4 +1552,94 @@ model TrashedCard {
   @@index([workspaceId, trashedAt])
   @@index([boardId, trashedAt])
   @@map("trashed_cards")
+}
+
+/// A file on a card.
+///
+/// The bytes live in storage (see apps/web/src/server/services/storage.ts),
+/// under a key we generate — never a name the uploader chose, so a filename
+/// cannot become a path. The name shown is kept separately for display and
+/// for the download's Content-Disposition.
+model Attachment {
+  id         String   @id @default(cuid())
+  taskId     String
+  uploaderId String?
+  storageKey String   @unique
+  filename   String
+  /// As the browser declared it. Only ever trusted to choose between "show an
+  /// image inline" and "download"; never used to decide how to execute it.
+  contentType String
+  sizeBytes   Int
+  sha256      String
+  createdAt   DateTime @default(now())
+
+  task     Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User? @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("attachments")
+}
+
+/// A board's shape, saved to start new boards from: columns, labels, and
+/// optionally starter cards. Built-in templates live in code; these are the
+/// ones people saved from their own boards.
+model BoardTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  /// { columns: [{ name, category, wipLimit }], labels: [{ name, color }],
+  ///   cards: [{ title, column, checklist }] } — see services/templates.ts.
+  structure   Json
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@map("board_templates")
+}
+
+/// A named filter: "My client work due this week". A query in the shared
+/// search grammar, for one board or (boardId null) across every board.
+model SavedView {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  boardId     String?
+  name        String
+  query       String
+  /// "board" or "table".
+  layout      String   @default("board")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  board     Board?    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([userId, boardId])
+  @@map("saved_views")
+}
+
+/// A personal access token for the REST API.
+///
+/// Shown once at creation; only a SHA-256 digest is stored, so a database
+/// read is not a way to act as someone. `prefix` is the first few characters,
+/// kept so a person can tell their tokens apart in Settings.
+model ApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  tokenDigest String    @unique
+  prefix      String
+  /// "read" and/or "write".
+  scopes      String[]
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_tokens")
 }

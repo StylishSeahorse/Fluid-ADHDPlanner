@@ -27,3 +27,6 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploaded attachments (STORAGE_DIR) — user data, never source.
+apps/web/data/

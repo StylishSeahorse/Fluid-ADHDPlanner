@@ -34,6 +34,7 @@ import {
   ChevronRightIcon,
   DotsIcon,
   LockIcon,
+  PaperclipIcon,
   PlusIcon,
   SubtaskIcon,
   TimerIcon,
@@ -54,6 +55,7 @@ export interface BoardCard {
   labels: Array<{ id: string; name: string; color: string }>;
   checklist: { done: number; total: number };
   commentCount: number;
+  attachmentCount: number;
   subtaskCount: number;
   blocked: boolean;
   nextSession: { startsAt: Date; state: string } | null;
@@ -426,6 +428,12 @@ function Card({
           <span className="inline-flex items-center gap-0.5" title="Subtasks">
             <SubtaskIcon className="size-3" />
             {card.subtaskCount}
+          </span>
+        ) : null}
+        {card.attachmentCount > 0 ? (
+          <span className="inline-flex items-center gap-0.5" title="Attachments">
+            <PaperclipIcon className="size-3" />
+            {card.attachmentCount}
           </span>
         ) : null}
         {card.commentCount > 0 ? (

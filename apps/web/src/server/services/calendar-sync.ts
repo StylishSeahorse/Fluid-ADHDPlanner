@@ -52,6 +52,7 @@ import {
 } from '@fluid/calendar';
 import { CalDavAdapter } from '@fluid/calendar/adapters/caldav';
 import { googleAdapter, openGoogleCredentials, revokeGoogle } from './google';
+import { notifyCalendarChange } from '../live-notify';
 
 /** Bound into the AAD, so a credential row cannot be moved between users. */
 export const CALDAV_CREDENTIAL_PURPOSE = 'caldav-credentials';
@@ -302,6 +303,11 @@ export async function syncConnection(connectionId: string): Promise<SyncSummary>
     // reconciled against the freshest view of the calendar.
     await mirrorScheduledBlocks(connection.userId);
     summary.pushed = await drainOutbox(connectionId);
+
+    // Open tabs re-render when meetings or blocks actually changed.
+    if (summary.created + summary.updated + summary.deleted + summary.adopted > 0) {
+      await notifyCalendarChange(connection.userId);
+    }
   } catch (error) {
     summary.error = await recordSyncFailure(connection.id, startedAt, error);
   }

@@ -13,6 +13,7 @@ import { areaRouter } from './area';
 import { objectiveRouter } from './objective';
 import { notificationRouter } from './notification';
 import { kanbanRouter } from './kanban';
+import { apiTokenRouter } from './api-token';
 
 export const appRouter = router({
   task: taskRouter,
@@ -28,6 +29,7 @@ export const appRouter = router({
   objective: objectiveRouter,
   notification: notificationRouter,
   kanban: kanbanRouter,
+  apiToken: apiTokenRouter,
 });
 
 export type AppRouter = typeof appRouter;

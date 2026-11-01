@@ -90,6 +90,15 @@ const schema = z.object({
    * each to one worker — so this is for keeping a replica lean, not for safety.
    */
   WORKER_DISABLED: booleanFlag,
+
+  /**
+   * Where uploaded attachments are written. Relative paths resolve from the
+   * server's working directory. In Docker this must be a mounted volume, or
+   * files vanish with the container.
+   */
+  STORAGE_DIR: z.string().trim().min(1).default('data/uploads'),
+  /** Largest attachment accepted, in megabytes. */
+  MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(500).default(25),
 });
 
 export type Env = z.infer<typeof schema>;

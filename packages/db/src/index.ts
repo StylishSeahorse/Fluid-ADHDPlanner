@@ -68,4 +68,8 @@ export type {
   Comment,
   ActivityEvent,
   TrashedCard,
+  Attachment,
+  BoardTemplate,
+  SavedView,
+  ApiToken,
 } from '../generated/client/index.js';

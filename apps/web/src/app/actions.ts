@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { assertValidTimeZone } from '@fluid/core';
 import { getCaller } from '@/server/caller';
 import { createSession, destroySession, getCurrentUser } from '@/server/auth/session';
+import { notifyBoardChange } from '@/server/live-notify';
 
 export type ActionState = { error?: string } | undefined;
 
@@ -169,6 +170,8 @@ export async function completeTask(formData: FormData): Promise<void> {
   revalidatePath('/focus');
   // Completion moves the card to its board's Done column.
   revalidatePath('/boards', 'layout');
+  const user = await getCurrentUser();
+  if (user) await notifyBoardChange(user.id);
 }
 
 /** The `FormData` shape, for buttons that submit fields rather than an id. */
@@ -191,6 +194,8 @@ export async function uncompleteTask(taskId: string): Promise<{ error?: string }
   revalidatePath('/week');
   revalidatePath('/focus');
   revalidatePath('/boards', 'layout');
+  const user = await getCurrentUser();
+  if (user) await notifyBoardChange(user.id);
   return {};
 }
 
@@ -869,6 +874,8 @@ export async function commitTaskToDay(input: {
   revalidatePath('/week');
   revalidatePath('/today');
   revalidatePath('/boards', 'layout');
+  const user = await getCurrentUser();
+  if (user) await notifyBoardChange(user.id);
   return {};
 }
 
@@ -1167,11 +1174,14 @@ export async function updateTimeZone(formData: FormData): Promise<void> {
  * — a card moved to Done is finished everywhere — so board writes refresh all
  * of them, not just the board.
  */
-function revalidateBoards(): void {
+async function revalidateBoards(): Promise<void> {
   revalidatePath('/boards', 'layout');
   revalidatePath('/today');
   revalidatePath('/week');
   revalidatePath('/projects');
+  // …and in every other open tab or device.
+  const user = await getCurrentUser();
+  if (user) await notifyBoardChange(user.id);
 }
 
 const field = (formData: FormData, name: string) => String(formData.get(name) ?? '').trim();
@@ -1186,7 +1196,7 @@ async function boardMutation(
   } catch (error) {
     return { error: messageFrom(error, fallback) };
   }
-  revalidateBoards();
+  await revalidateBoards();
   return {};
 }
 
@@ -1194,11 +1204,14 @@ export async function createBoard(_state: ActionState, formData: FormData): Prom
   const caller = await getCaller();
   let boardId: string;
   try {
-    ({ id: boardId } = await caller.kanban.createBoard({ name: field(formData, 'name') }));
+    ({ id: boardId } = await caller.kanban.createBoard({
+      name: field(formData, 'name'),
+      ...(field(formData, 'templateId') ? { templateId: field(formData, 'templateId') } : {}),
+    }));
   } catch (error) {
     return { error: messageFrom(error, 'Could not create that board.') };
   }
-  revalidateBoards();
+  await revalidateBoards();
   redirect(`/boards/${boardId}`);
 }
 
@@ -1364,4 +1377,85 @@ export async function addComment(formData: FormData) {
 
 export async function deleteComment(formData: FormData) {
   return boardMutation((caller) => caller.kanban.deleteComment({ id: field(formData, 'id') }), 'Could not delete that comment.');
+}
+
+export async function deleteAttachmentAction(id: string): Promise<{ error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Sign in to continue.' };
+  try {
+    const { deleteAttachment } = await import('@/server/services/attachments');
+    await deleteAttachment(user.id, id);
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not remove that file.') };
+  }
+  await revalidateBoards();
+  return {};
+}
+
+export async function saveBoardTemplate(formData: FormData) {
+  return boardMutation(
+    (caller) =>
+      caller.kanban.saveTemplate({
+        boardId: field(formData, 'boardId'),
+        name: field(formData, 'name'),
+        includeCards: formData.get('includeCards') === 'on',
+      }),
+    'Could not save that template.',
+  );
+}
+
+export async function deleteBoardTemplate(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.deleteTemplate({ id: field(formData, 'id') }), 'Could not delete that template.');
+}
+
+export async function saveView(formData: FormData) {
+  const boardId = field(formData, 'boardId');
+  return boardMutation(
+    (caller) =>
+      caller.kanban.saveView({
+        boardId: boardId || null,
+        name: field(formData, 'name'),
+        query: field(formData, 'query'),
+        layout: field(formData, 'layout') === 'table' ? 'table' : 'board',
+      }),
+    'Could not save that view.',
+  );
+}
+
+export async function deleteView(formData: FormData) {
+  return boardMutation((caller) => caller.kanban.deleteView({ id: field(formData, 'id') }), 'Could not delete that view.');
+}
+
+// ---------------------------------------------------------------------------
+// API tokens
+// ---------------------------------------------------------------------------
+
+export type TokenState = { error?: string; token?: string; name?: string } | undefined;
+
+/** Make a token. It is returned here, once, and never readable again. */
+export async function createApiTokenAction(_state: TokenState, formData: FormData): Promise<TokenState> {
+  const caller = await getCaller();
+  const expiry = field(formData, 'expiresInDays');
+  try {
+    const { token } = await caller.apiToken.create({
+      name: field(formData, 'name'),
+      write: formData.get('write') === 'on',
+      expiresInDays: expiry === 'never' ? null : (Number(expiry) as 30 | 90 | 365),
+    });
+    revalidatePath('/settings');
+    return { token, name: field(formData, 'name') };
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not make that token.') };
+  }
+}
+
+export async function revokeApiTokenAction(formData: FormData) {
+  const caller = await getCaller();
+  try {
+    await caller.apiToken.revoke({ id: field(formData, 'id') });
+  } catch (error) {
+    return { error: messageFrom(error, 'Could not revoke that token.') };
+  }
+  revalidatePath('/settings');
+  return {};
 }

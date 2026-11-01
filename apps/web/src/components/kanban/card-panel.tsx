@@ -26,6 +26,7 @@ import { CheckIcon, XIcon } from '@/components/icons';
 import { LABEL_COLORS, LABEL_SWATCH, chipClass } from '@/components/label-colors';
 import type { getCaller } from '@/server/caller';
 import { ActionForm } from './action-form';
+import { Attachments } from './attachments';
 import { CloseOnEscape, ColumnPicker, PlanForDay, TitleEditor } from './card-controls';
 
 /** The card as the server caller returns it — Dates intact, no serialisation. */
@@ -67,7 +68,9 @@ export function CardPanel({
   todayKey,
   tomorrowKey,
   userId,
+  maxUploadMb,
 }: {
+  maxUploadMb: number;
   card: CardData | null;
   closeHref: string;
   columns: Array<{ id: string; name: string }>;
@@ -93,6 +96,7 @@ export function CardPanel({
             todayKey={todayKey}
             tomorrowKey={tomorrowKey}
             userId={userId}
+            maxUploadMb={maxUploadMb}
           />
         ) : (
           <div className="p-6">
@@ -133,7 +137,9 @@ function Body({
   todayKey,
   tomorrowKey,
   userId,
+  maxUploadMb,
 }: {
+  maxUploadMb: number;
   card: CardData;
   closeHref: string;
   columns: Array<{ id: string; name: string }>;
@@ -303,6 +309,11 @@ function Body({
               Save description
             </button>
           </ActionForm>
+        </Section>
+
+        {/* --- Files -------------------------------------------------- */}
+        <Section title="Files">
+          <Attachments taskId={card.id} attachments={card.attachments} maxMb={maxUploadMb} />
         </Section>
 
         {/* --- Checklist ---------------------------------------------- */}

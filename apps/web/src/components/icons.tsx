@@ -240,3 +240,9 @@ export const SearchIcon = ({ className }: IconProps) => (
     <path d="m16 16 4 4" />
   </svg>
 );
+
+export const PaperclipIcon = ({ className }: IconProps) => (
+  <svg {...stroke} className={size(className)}>
+    <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4" />
+  </svg>
+);

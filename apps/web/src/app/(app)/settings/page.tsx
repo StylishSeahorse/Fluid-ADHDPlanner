@@ -1,4 +1,4 @@
-import { features } from '@fluid/env';
+import { env, features } from '@fluid/env';
 import { prisma } from '@fluid/db';
 import { setAutonomy, updateAccessibility, updateFocusRhythm, updateTimeZone } from '@/app/actions';
 import { PageHeader, SectionTitle } from '@/components/page-header';
@@ -7,6 +7,7 @@ import { Areas } from '@/components/areas';
 import { RoutinesSection } from '@/components/routines-section';
 import { CalendarConnections } from '@/components/calendar-connections';
 import { NotificationSettings } from '@/components/pwa/notification-settings';
+import { ApiTokens } from '@/components/api-tokens';
 import { getCaller } from '@/server/caller';
 import { requireUser } from '@/server/auth/session';
 
@@ -36,7 +37,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const user = await requireUser();
   const caller = await getCaller();
 
-  const [preferences, calendars, autonomy, aiSettings, cliStatus, areas, routines, notifications] =
+  const [preferences, calendars, autonomy, aiSettings, cliStatus, areas, routines, notifications, apiTokens] =
     await Promise.all([
       prisma.userPreferences.findUnique({ where: { userId: user.id } }),
       caller.calendar.connections(),
@@ -46,6 +47,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       caller.area.list(),
       caller.routine.list(),
       caller.notification.settings(),
+      caller.apiToken.list(),
     ]);
 
   const zones = Intl.supportedValuesOf('timeZone');
@@ -163,6 +165,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
+      <section id="api" className="scroll-mt-32">
+        <SectionTitle>API tokens</SectionTitle>
+        <ApiTokens tokens={apiTokens} timeZone={user.timeZone} apiBase={`${env.APP_URL}/api/v1`} />
+      </section>
+
       <section id="accessibility" className="scroll-mt-32">
         <SectionTitle>Accessibility</SectionTitle>
         <form action={updateAccessibility} className="card bg-base-100 border-base-200 border shadow-sm">
@@ -206,6 +213,7 @@ const SECTIONS = [
   { id: 'areas', label: 'Areas' },
   { id: 'calendars', label: 'Calendars' },
   { id: 'ai', label: 'AI' },
+  { id: 'api', label: 'API' },
   { id: 'accessibility', label: 'Accessibility' },
 ] as const;
 
